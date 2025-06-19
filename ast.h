@@ -11,12 +11,14 @@ typedef enum {
     NODE_EXPRESSION_STATEMENT,
     NODE_IF,
     NODE_WHILE,
+    NODE_FOR,
     NODE_SWITCH,
     NODE_CASE,
     NODE_RETURN,
     NODE_BREAK,
     NODE_BINARY_OP,        // <-- For expressions like a + b
     NODE_ASSIGNMENT,       // <-- For expressions like x = 5
+    NODE_FUNCTION_CALL,    // <-- For function calls like f(x, y)
     NODE_IDENTIFIER,
     NODE_NUMBER_LITERAL
 } NodeType;
@@ -43,6 +45,7 @@ typedef struct {
 typedef struct {
     Node base;
     char* name;
+    NodeList* parameters; // List of IdentifierNodes
     Node* body; // BlockNode
 } FunctionDefNode;
 
@@ -74,6 +77,14 @@ typedef struct {
     Node* condition;
     Node* body;
 } WhileNode;
+
+typedef struct {
+    Node base;
+    Node* init;      // Can be NULL
+    Node* condition; // Can be NULL
+    Node* update;    // Can be NULL
+    Node* body;
+} ForNode;
 
 typedef struct {
     Node base;
@@ -127,10 +138,16 @@ typedef struct {
     char* value;
 } NumberLiteralNode;
 
+typedef struct {
+    Node base;
+    char* name;
+    NodeList* arguments;
+} FunctionCallNode;
+
 
 // --- AST Creation Functions (with missing declarations added) ---
 Node* create_program_node();
-Node* create_function_def_node(char* name, Node* body);
+Node* create_function_def_node(char* name, NodeList* parameters, Node* body);
 Node* create_block_node();
 Node* create_var_decl_node(char* var_name, Node* initializer);
 Node* create_expression_statement_node(Node* expression);
@@ -143,10 +160,15 @@ Node* create_assignment_node(Node* identifier, Node* value);
 Node* create_identifier_node(char* name);
 Node* create_number_literal_node(char* value);
 Node* create_if_node(Node* condition, Node* then_branch, Node* else_branch);
-// ... add others as you expand the language (while, etc.)
+Node* create_while_node(Node* condition, Node* body);
+Node* create_for_node(Node* init, Node* condition, Node* update, Node* body);
+Node* create_return_node(Node* return_value);
+Node* create_function_call_node(char* name, NodeList* arguments);
+// ... add others as you expand the language
 
 
 // --- AST Management ---
+NodeList* create_node_list();
 void add_node_to_list(NodeList* list, Node* node);
 void free_node(Node* node);
 

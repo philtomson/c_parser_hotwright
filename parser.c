@@ -14,6 +14,8 @@ static Node* parse_function_definition(Parser* p);
 static Node* parse_block_statement(Parser* p);
 static Node* parse_declaration_statement(Parser* p);
 static Node* parse_if_statement(Parser* p);
+static Node* parse_while_statement(Parser* p);
+static Node* parse_for_statement(Parser* p);
 static Node* parse_switch_statement(Parser* p);
 static Node* parse_expression_statement(Parser* p);
 
@@ -112,9 +114,32 @@ static Node* parse_primary(Parser* p) {
             parser_error("Memory allocation failed for identifier");
         }
         advance(p);
-        Node* node = create_identifier_node(value);
-        debug_print_node(node, "Created identifier");
-        return node;
+        
+        // Check if this is a function call
+        if (current_token(p).type == TOKEN_LPAREN) {
+            advance(p); // consume '('
+            NodeList* arguments = create_node_list();
+            
+            // Parse arguments
+            if (current_token(p).type != TOKEN_RPAREN) {
+                // First argument
+                add_node_to_list(arguments, parse_expression(p));
+                
+                // Additional arguments
+                while (match(p, TOKEN_COMMA)) {
+                    add_node_to_list(arguments, parse_expression(p));
+                }
+            }
+            
+            expect(p, TOKEN_RPAREN, "Expected ')' after function arguments");
+            Node* node = create_function_call_node(value, arguments);
+            debug_print_node(node, "Created function call");
+            return node;
+        } else {
+            Node* node = create_identifier_node(value);
+            debug_print_node(node, "Created identifier");
+            return node;
+        }
     }
     
     if (match(p, TOKEN_LPAREN)) {
@@ -275,6 +300,54 @@ static Node* parse_if_statement(Parser* p) {
     return create_if_node(condition, then_branch, else_branch);
 }
 
+static Node* parse_while_statement(Parser* p) {
+    expect(p, TOKEN_WHILE, "Expected 'while'");
+    expect(p, TOKEN_LPAREN, "Expected '(' after 'while'");
+    Node* condition = parse_expression(p);
+    expect(p, TOKEN_RPAREN, "Expected ')' after while condition");
+    
+    Node* body = parse_statement(p);
+    
+    return create_while_node(condition, body);
+}
+
+static Node* parse_for_statement(Parser* p) {
+    expect(p, TOKEN_FOR, "Expected 'for'");
+    expect(p, TOKEN_LPAREN, "Expected '(' after 'for'");
+    
+    // Parse init (can be empty)
+    Node* init = NULL;
+    if (current_token(p).type != TOKEN_SEMICOLON) {
+        if (current_token(p).type == TOKEN_INT && peek_token(p).type == TOKEN_IDENTIFIER) {
+            init = parse_declaration_statement(p);
+            // Declaration already consumes semicolon
+        } else {
+            init = parse_expression(p);
+            expect(p, TOKEN_SEMICOLON, "Expected ';' after for loop initializer");
+        }
+    } else {
+        advance(p); // consume semicolon
+    }
+    
+    // Parse condition (can be empty)
+    Node* condition = NULL;
+    if (current_token(p).type != TOKEN_SEMICOLON) {
+        condition = parse_expression(p);
+    }
+    expect(p, TOKEN_SEMICOLON, "Expected ';' after for loop condition");
+    
+    // Parse update (can be empty)
+    Node* update = NULL;
+    if (current_token(p).type != TOKEN_RPAREN) {
+        update = parse_expression(p);
+    }
+    expect(p, TOKEN_RPAREN, "Expected ')' after for loop clauses");
+    
+    Node* body = parse_statement(p);
+    
+    return create_for_node(init, condition, update, body);
+}
+
 static Node* parse_statement(Parser* p) {
     // Check for declaration: 'int' followed by an identifier
     if (current_token(p).type == TOKEN_INT && peek_token(p).type == TOKEN_IDENTIFIER) {
@@ -283,14 +356,24 @@ static Node* parse_statement(Parser* p) {
 
     switch (current_token(p).type) {
         case TOKEN_IF: return parse_if_statement(p);
+        case TOKEN_WHILE: return parse_while_statement(p);
+        case TOKEN_FOR: return parse_for_statement(p);
         case TOKEN_SWITCH: return parse_switch_statement(p);
         case TOKEN_BREAK:
             advance(p);
             expect(p, TOKEN_SEMICOLON, "Expected ';' after break");
             return create_break_node();
+        case TOKEN_RETURN:
+            advance(p);
+            Node* return_value = NULL;
+            if (current_token(p).type != TOKEN_SEMICOLON) {
+                return_value = parse_expression(p);
+            }
+            expect(p, TOKEN_SEMICOLON, "Expected ';' after return");
+            return create_return_node(return_value);
         case TOKEN_LBRACE: return parse_block_statement(p);
         
-        // Add other statement types like while, return here
+        // Add other statement types like function calls here
         
         default: return parse_expression_statement(p);
     }
@@ -310,10 +393,27 @@ static Node* parse_function_definition(Parser* p) {
     expect(p, TOKEN_INT, "Expected 'int' return type");
     Token name_tok = expect(p, TOKEN_IDENTIFIER, "Expected function name");
     expect(p, TOKEN_LPAREN, "Expected '(' after function name");
-    // Note: We don't support parameters in this simple version
+    
+    NodeList* parameters = create_node_list();
+    
+    // Parse parameters
+    if (current_token(p).type != TOKEN_RPAREN) {
+        // First parameter
+        expect(p, TOKEN_INT, "Expected 'int' parameter type");
+        Token param_tok = expect(p, TOKEN_IDENTIFIER, "Expected parameter name");
+        add_node_to_list(parameters, create_identifier_node(strdup(param_tok.value)));
+        
+        // Additional parameters
+        while (match(p, TOKEN_COMMA)) {
+            expect(p, TOKEN_INT, "Expected 'int' parameter type");
+            param_tok = expect(p, TOKEN_IDENTIFIER, "Expected parameter name");
+            add_node_to_list(parameters, create_identifier_node(strdup(param_tok.value)));
+        }
+    }
+    
     expect(p, TOKEN_RPAREN, "Expected ')' after function parameters");
     Node* body = parse_block_statement(p);
-    return create_function_def_node(strdup(name_tok.value), body);
+    return create_function_def_node(strdup(name_tok.value), parameters, body);
 }
 
 

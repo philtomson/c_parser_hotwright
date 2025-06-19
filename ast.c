@@ -3,7 +3,7 @@
 #include <string.h>
 
 // Helper to create a node list
-static NodeList* create_node_list() {
+NodeList* create_node_list() {
     NodeList* list = malloc(sizeof(NodeList));
     list->capacity = 8;
     list->count = 0;
@@ -29,10 +29,11 @@ Node* create_program_node() {
     return (Node*)node;
 }
 
-Node* create_function_def_node(char* name, Node* body) {
+Node* create_function_def_node(char* name, NodeList* parameters, Node* body) {
     FunctionDefNode* node = malloc(sizeof(FunctionDefNode));
     node->base.type = NODE_FUNCTION_DEF;
     node->name = name; // Assumes ownership of name
+    node->parameters = parameters;
     node->body = body;
     return (Node*)node;
 }
@@ -128,6 +129,39 @@ Node* create_if_node(Node* condition, Node* then_branch, Node* else_branch) {
     return (Node*)node;
 }
 
+Node* create_while_node(Node* condition, Node* body) {
+    WhileNode* node = malloc(sizeof(WhileNode));
+    node->base.type = NODE_WHILE;
+    node->condition = condition;
+    node->body = body;
+    return (Node*)node;
+}
+
+Node* create_for_node(Node* init, Node* condition, Node* update, Node* body) {
+    ForNode* node = malloc(sizeof(ForNode));
+    node->base.type = NODE_FOR;
+    node->init = init;
+    node->condition = condition;
+    node->update = update;
+    node->body = body;
+    return (Node*)node;
+}
+
+Node* create_return_node(Node* return_value) {
+    ReturnNode* node = malloc(sizeof(ReturnNode));
+    node->base.type = NODE_RETURN;
+    node->return_value = return_value;
+    return (Node*)node;
+}
+
+Node* create_function_call_node(char* name, NodeList* arguments) {
+    FunctionCallNode* node = malloc(sizeof(FunctionCallNode));
+    node->base.type = NODE_FUNCTION_CALL;
+    node->name = name;
+    node->arguments = arguments;
+    return (Node*)node;
+}
+
 // --- Cleanup Functions ---
 
 // Recursively free a node list
@@ -155,6 +189,7 @@ void free_node(Node* node) {
         case NODE_FUNCTION_DEF: {
             FunctionDefNode* n = (FunctionDefNode*)node;
             free(n->name);
+            free_node_list(n->parameters);
             free_node(n->body);
             break;
         }
@@ -226,9 +261,23 @@ void free_node(Node* node) {
             free_node(n->body);
             break;
         }
+        case NODE_FOR: {
+            ForNode* n = (ForNode*)node;
+            free_node(n->init);
+            free_node(n->condition);
+            free_node(n->update);
+            free_node(n->body);
+            break;
+        }
          case NODE_RETURN: {
             ReturnNode* n = (ReturnNode*)node;
             free_node(n->return_value);
+            break;
+        }
+        case NODE_FUNCTION_CALL: {
+            FunctionCallNode* n = (FunctionCallNode*)node;
+            free(n->name);
+            free_node_list(n->arguments);
             break;
         }
     }

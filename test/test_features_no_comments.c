@@ -47,6 +47,19 @@ int main() {
         c = 8;
     }
     
+    while (a > 0) {
+        a = a - 1;
+        if (a == 5) {
+            break;
+        }
+    }
+    
+    int i = 0;
+    while (i < 10) {
+        c = c + i;
+        i = i + 1;
+    }
+    
     switch (a) {
         case 5:
             b = 100;

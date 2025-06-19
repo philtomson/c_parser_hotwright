@@ -38,9 +38,43 @@ static Token make_simple_token(TokenType type, Lexer* lexer) {
     return token;
 }
 
-static void skip_whitespace(Lexer* lexer) {
-    while (lexer->pos < lexer->len && isspace(lexer->source[lexer->pos])) {
-        lexer->pos++;
+static void skip_whitespace_and_comments(Lexer* lexer) {
+    while (lexer->pos < lexer->len) {
+        // Skip whitespace
+        if (isspace(lexer->source[lexer->pos])) {
+            lexer->pos++;
+            continue;
+        }
+        
+        // Skip single-line comments
+        if (lexer->pos + 1 < lexer->len &&
+            lexer->source[lexer->pos] == '/' &&
+            lexer->source[lexer->pos + 1] == '/') {
+            lexer->pos += 2;
+            while (lexer->pos < lexer->len && lexer->source[lexer->pos] != '\n') {
+                lexer->pos++;
+            }
+            continue;
+        }
+        
+        // Skip multi-line comments
+        if (lexer->pos + 1 < lexer->len &&
+            lexer->source[lexer->pos] == '/' &&
+            lexer->source[lexer->pos + 1] == '*') {
+            lexer->pos += 2;
+            while (lexer->pos + 1 < lexer->len) {
+                if (lexer->source[lexer->pos] == '*' &&
+                    lexer->source[lexer->pos + 1] == '/') {
+                    lexer->pos += 2;
+                    break;
+                }
+                lexer->pos++;
+            }
+            continue;
+        }
+        
+        // No more whitespace or comments
+        break;
     }
 }
 
@@ -59,6 +93,7 @@ static Token identifier_or_keyword(Lexer* lexer) {
     if (strcmp(value, "if") == 0) { free(value); return make_token(TOKEN_IF, "if", 2); }
     if (strcmp(value, "else") == 0) { free(value); return make_token(TOKEN_ELSE, "else", 4); }
     if (strcmp(value, "while") == 0) { free(value); return make_token(TOKEN_WHILE, "while", 5); }
+    if (strcmp(value, "for") == 0) { free(value); return make_token(TOKEN_FOR, "for", 3); }
     if (strcmp(value, "return") == 0) { free(value); return make_token(TOKEN_RETURN, "return", 6); }
     if (strcmp(value, "break") == 0) { free(value); return make_token(TOKEN_BREAK, "break", 5); }
     if (strcmp(value, "switch") == 0) { free(value); return make_token(TOKEN_SWITCH, "switch", 6); }
@@ -79,7 +114,7 @@ static Token number(Lexer* lexer) {
 }
 
 Token lexer_next_token(Lexer* lexer) {
-    skip_whitespace(lexer);
+    skip_whitespace_and_comments(lexer);
 
     if (lexer->pos >= lexer->len) return make_token(TOKEN_EOF, "", 0);
 
@@ -100,6 +135,7 @@ Token lexer_next_token(Lexer* lexer) {
         case '}': return make_simple_token(TOKEN_RBRACE, lexer);
         case ';': return make_simple_token(TOKEN_SEMICOLON, lexer);
         case ':': return make_simple_token(TOKEN_COLON, lexer);
+        case ',': return make_simple_token(TOKEN_COMMA, lexer);
         case '=':
             if (peek == '=') { lexer->pos += 2; return make_token(TOKEN_EQUAL, "==", 2); }
             return make_simple_token(TOKEN_ASSIGN, lexer);
@@ -121,7 +157,7 @@ Token lexer_next_token(Lexer* lexer) {
 const char* token_type_to_string(TokenType type) {
     switch(type) {
         case TOKEN_INT: return "INT"; case TOKEN_IF: return "IF"; case TOKEN_ELSE: return "ELSE";
-        case TOKEN_WHILE: return "WHILE"; case TOKEN_RETURN: return "RETURN"; case TOKEN_BREAK: return "BREAK";
+        case TOKEN_WHILE: return "WHILE"; case TOKEN_FOR: return "FOR"; case TOKEN_RETURN: return "RETURN"; case TOKEN_BREAK: return "BREAK";
         case TOKEN_SWITCH: return "SWITCH"; case TOKEN_CASE: return "CASE"; case TOKEN_DEFAULT: return "DEFAULT";
         case TOKEN_IDENTIFIER: return "IDENTIFIER"; case TOKEN_NUMBER: return "NUMBER";
         case TOKEN_PLUS: return "PLUS"; case TOKEN_MINUS: return "MINUS"; case TOKEN_STAR: return "STAR";
@@ -130,7 +166,7 @@ const char* token_type_to_string(TokenType type) {
         case TOKEN_GREATER: return "GREATER"; case TOKEN_GREATER_EQUAL: return "GREATER_EQUAL";
         case TOKEN_LPAREN: return "LPAREN"; case TOKEN_RPAREN: return "RPAREN"; case TOKEN_LBRACE: return "LBRACE";
         case TOKEN_RBRACE: return "RBRACE"; case TOKEN_SEMICOLON: return "SEMICOLON"; case TOKEN_COLON: return "COLON";
-        case TOKEN_EOF: return "EOF"; case TOKEN_ILLEGAL: return "ILLEGAL";
+        case TOKEN_COMMA: return "COMMA"; case TOKEN_EOF: return "EOF"; case TOKEN_ILLEGAL: return "ILLEGAL";
     }
     return "UNKNOWN";
 }
