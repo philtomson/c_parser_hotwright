@@ -3,7 +3,7 @@ CFLAGS = -Wall -Wextra -g -std=c99
 LDFLAGS = 
 
 # Source files
-SRCS = lexer.c parser.c ast.c cfg.c cfg_builder.c cfg_utils.c
+SRCS = lexer.c parser.c ast.c cfg.c cfg_builder.c cfg_utils.c hw_analyzer.c
 OBJS = $(SRCS:.c=.o)
 
 # Test programs
@@ -34,7 +34,8 @@ ast.o: ast.c ast.h lexer.h
 cfg.o: cfg.c cfg.h ast.h lexer.h
 cfg_builder.o: cfg_builder.c cfg_builder.h cfg.h ast.h lexer.h
 cfg_utils.o: cfg_utils.c cfg_utils.h cfg.h ast.h lexer.h
-main.o: main.c parser.h lexer.h ast.h cfg.h cfg_builder.h cfg_utils.h
+hw_analyzer.o: hw_analyzer.c hw_analyzer.h ast.h lexer.h
+main.o: main.c parser.h lexer.h ast.h cfg.h cfg_builder.h cfg_utils.h hw_analyzer.h
 test_cfg.o: test_cfg.c parser.h lexer.h ast.h cfg.h cfg_builder.h cfg_utils.h
 
 # Clean

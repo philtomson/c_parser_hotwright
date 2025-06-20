@@ -8,6 +8,7 @@
 #include "cfg.h"
 #include "cfg_builder.h"
 #include "cfg_utils.h"
+#include "hw_analyzer.h"
 
 // Global debug flag
 int debug_mode = 0;
@@ -65,6 +66,7 @@ int main(int argc, char* argv[]) {
     char* source_code = NULL;
     char* input_filename = NULL;
     bool generate_dot = false;
+    bool analyze_hardware = false;
     
     // Parse command line arguments
     for (int i = 1; i < argc; i++) {
@@ -72,14 +74,17 @@ int main(int argc, char* argv[]) {
             generate_dot = true;
         } else if (strcmp(argv[i], "--debug") == 0) {
             debug_mode = 1;
+        } else if (strcmp(argv[i], "--hardware") == 0) {
+            analyze_hardware = true;
         } else if (argv[i][0] != '-') {
             // This is the input filename
             input_filename = argv[i];
         } else {
             printf("Unknown option: %s\n", argv[i]);
-            printf("Usage: %s [--dot] [--debug] <filename.c>\n", argv[0]);
-            printf("  --dot    Generate a DOT file for CFG visualization\n");
-            printf("  --debug  Enable debug output messages\n");
+            printf("Usage: %s [--dot] [--debug] [--hardware] <filename.c>\n", argv[0]);
+            printf("  --dot       Generate a DOT file for CFG visualization\n");
+            printf("  --debug     Enable debug output messages\n");
+            printf("  --hardware  Analyze hardware constructs (state/input variables)\n");
             return 1;
         }
     }
@@ -94,9 +99,10 @@ int main(int argc, char* argv[]) {
     } else {
         // Use default test code
         printf("No file specified. Using default test code.\n");
-        printf("Usage: %s [--dot] [--debug] <filename.c>\n", argv[0]);
-        printf("  --dot    Generate a DOT file for CFG visualization\n");
-        printf("  --debug  Enable debug output messages\n\n");
+        printf("Usage: %s [--dot] [--debug] [--hardware] <filename.c>\n", argv[0]);
+        printf("  --dot       Generate a DOT file for CFG visualization\n");
+        printf("  --debug     Enable debug output messages\n");
+        printf("  --hardware  Analyze hardware constructs (state/input variables)\n\n");
         
         const char* default_code =
         "int main() {\n"
@@ -169,6 +175,18 @@ int main(int argc, char* argv[]) {
                 free_cfg(cfg);
             } else {
                 printf("Error: Failed to build CFG from AST\n");
+            }
+        }
+        
+        // 5. Hardware Analysis if requested
+        if (analyze_hardware) {
+            printf("\n--- Hardware Analysis ---\n");
+            HardwareContext* hw_ctx = analyze_hardware_constructs(ast_root);
+            if (hw_ctx) {
+                print_hardware_context(hw_ctx, stdout);
+                free_hardware_context(hw_ctx);
+            } else {
+                printf("Error: Failed to analyze hardware constructs\n");
             }
         }
     } else {
