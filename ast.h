@@ -20,6 +20,7 @@ typedef enum {
     NODE_RETURN,
     NODE_BREAK,
     NODE_BINARY_OP,        // <-- For expressions like a + b
+    NODE_UNARY_OP,         // <-- For expressions like !a
     NODE_ASSIGNMENT,       // <-- For expressions like x = 5
     NODE_FUNCTION_CALL,    // <-- For function calls like f(x, y)
     NODE_ARRAY_ACCESS,     // <-- For array indexing like arr[i]
@@ -123,6 +124,12 @@ typedef struct {
     Node* right;
 } BinaryOpNode;
 
+typedef struct {
+    Node base;
+    TokenType op;
+    Node* operand;
+} UnaryOpNode;
+
 /*
 typedef struct {
     Node base;
@@ -180,6 +187,7 @@ Node* create_switch_node(Node* expression);
 Node* create_case_node(Node* value);
 Node* create_break_node();
 Node* create_binary_op_node(TokenType op, Node* left, Node* right); // <-- MISSING
+Node* create_unary_op_node(TokenType op, Node* operand);
 //Node* create_assignment_node(char* name, Node* value);         // <-- MISSING
 Node* create_assignment_node(Node* identifier, Node* value);
 Node* create_identifier_node(char* name);

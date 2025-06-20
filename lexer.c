@@ -184,7 +184,23 @@ Token lexer_next_token(Lexer* lexer) {
                 lexer->column += 2;
                 return make_token(TOKEN_NOT_EQUAL, "!=", 2, lexer->line, col);
             }
-            break;
+            return make_simple_token(TOKEN_NOT, lexer);
+        case '&':
+            if (peek == '&') {
+                int col = lexer->column;
+                lexer->pos += 2;
+                lexer->column += 2;
+                return make_token(TOKEN_LOGICAL_AND, "&&", 2, lexer->line, col);
+            }
+            return make_simple_token(TOKEN_AND, lexer);
+        case '|':
+            if (peek == '|') {
+                int col = lexer->column;
+                lexer->pos += 2;
+                lexer->column += 2;
+                return make_token(TOKEN_LOGICAL_OR, "||", 2, lexer->line, col);
+            }
+            return make_simple_token(TOKEN_OR, lexer);
         case '<':
             if (peek == '=') {
                 int col = lexer->column;
@@ -218,6 +234,8 @@ const char* token_type_to_string(TokenType type) {
         case TOKEN_SLASH: return "SLASH"; case TOKEN_ASSIGN: return "ASSIGN"; case TOKEN_EQUAL: return "EQUAL";
         case TOKEN_NOT_EQUAL: return "NOT_EQUAL"; case TOKEN_LESS: return "LESS"; case TOKEN_LESS_EQUAL: return "LESS_EQUAL";
         case TOKEN_GREATER: return "GREATER"; case TOKEN_GREATER_EQUAL: return "GREATER_EQUAL";
+        case TOKEN_AND: return "AND"; case TOKEN_OR: return "OR"; case TOKEN_LOGICAL_AND: return "LOGICAL_AND";
+        case TOKEN_LOGICAL_OR: return "LOGICAL_OR"; case TOKEN_NOT: return "NOT";
         case TOKEN_LPAREN: return "LPAREN"; case TOKEN_RPAREN: return "RPAREN"; case TOKEN_LBRACE: return "LBRACE";
         case TOKEN_RBRACE: return "RBRACE"; case TOKEN_LBRACKET: return "LBRACKET"; case TOKEN_RBRACKET: return "RBRACKET";
         case TOKEN_SEMICOLON: return "SEMICOLON"; case TOKEN_COLON: return "COLON";

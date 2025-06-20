@@ -251,13 +251,34 @@ static Node* parse_equality(Parser* p) {
 
 
 
+static Node* parse_logical_and(Parser* p) {
+    Node* node = parse_equality(p);
+    while (current_token(p).type == TOKEN_LOGICAL_AND) {
+        TokenType op = current_token(p).type;
+        advance(p);
+        Node* right = parse_equality(p);
+        node = create_binary_op_node(op, node, right);
+    }
+    return node;
+}
+
+static Node* parse_logical_or(Parser* p) {
+    Node* node = parse_logical_and(p);
+    while (current_token(p).type == TOKEN_LOGICAL_OR) {
+        TokenType op = current_token(p).type;
+        advance(p);
+        Node* right = parse_logical_and(p);
+        node = create_binary_op_node(op, node, right);
+    }
+    return node;
+}
 
 static Node* parse_expression(Parser* p) {
     return parse_assignment(p);
 }
 
 static Node* parse_assignment(Parser* p) {
-    Node* left = parse_equality(p);
+    Node* left = parse_logical_or(p);
     
     if (current_token(p).type == TOKEN_ASSIGN) {
         advance(p);
