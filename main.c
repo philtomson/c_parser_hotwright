@@ -9,6 +9,8 @@
 #include "cfg_builder.h"
 #include "cfg_utils.h"
 #include "hw_analyzer.h"
+#include "cfg_to_microcode.h"
+#include "verilog_generator.h"
 
 // Global debug flag
 int debug_mode = 0;
@@ -67,6 +69,10 @@ int main(int argc, char* argv[]) {
     char* input_filename = NULL;
     bool generate_dot = false;
     bool analyze_hardware = false;
+    bool generate_microcode = false;
+    bool generate_verilog = false;
+    bool generate_testbench = false;
+    bool generate_all_hdl = false;
     
     // Parse command line arguments
     for (int i = 1; i < argc; i++) {
@@ -76,15 +82,27 @@ int main(int argc, char* argv[]) {
             debug_mode = 1;
         } else if (strcmp(argv[i], "--hardware") == 0) {
             analyze_hardware = true;
+        } else if (strcmp(argv[i], "--microcode") == 0) {
+            generate_microcode = true;
+        } else if (strcmp(argv[i], "--verilog") == 0) {
+            generate_verilog = true;
+        } else if (strcmp(argv[i], "--testbench") == 0) {
+            generate_testbench = true;
+        } else if (strcmp(argv[i], "--all-hdl") == 0) {
+            generate_all_hdl = true;
         } else if (argv[i][0] != '-') {
             // This is the input filename
             input_filename = argv[i];
         } else {
             printf("Unknown option: %s\n", argv[i]);
-            printf("Usage: %s [--dot] [--debug] [--hardware] <filename.c>\n", argv[0]);
-            printf("  --dot       Generate a DOT file for CFG visualization\n");
-            printf("  --debug     Enable debug output messages\n");
-            printf("  --hardware  Analyze hardware constructs (state/input variables)\n");
+            printf("Usage: %s [--dot] [--debug] [--hardware] [--microcode] [--verilog] [--testbench] [--all-hdl] <filename.c>\n", argv[0]);
+            printf("  --dot        Generate a DOT file for CFG visualization\n");
+            printf("  --debug      Enable debug output messages\n");
+            printf("  --hardware   Analyze hardware constructs (state/input variables)\n");
+            printf("  --microcode  Generate hotstate-compatible microcode\n");
+            printf("  --verilog    Generate Verilog HDL module\n");
+            printf("  --testbench  Generate Verilog testbench\n");
+            printf("  --all-hdl    Generate all HDL files (module, testbench, stimulus, makefile)\n");
             return 1;
         }
     }
@@ -99,10 +117,14 @@ int main(int argc, char* argv[]) {
     } else {
         // Use default test code
         printf("No file specified. Using default test code.\n");
-        printf("Usage: %s [--dot] [--debug] [--hardware] <filename.c>\n", argv[0]);
-        printf("  --dot       Generate a DOT file for CFG visualization\n");
-        printf("  --debug     Enable debug output messages\n");
-        printf("  --hardware  Analyze hardware constructs (state/input variables)\n\n");
+        printf("Usage: %s [--dot] [--debug] [--hardware] [--microcode] [--verilog] [--testbench] [--all-hdl] <filename.c>\n", argv[0]);
+        printf("  --dot        Generate a DOT file for CFG visualization\n");
+        printf("  --debug      Enable debug output messages\n");
+        printf("  --hardware   Analyze hardware constructs (state/input variables)\n");
+        printf("  --microcode  Generate hotstate-compatible microcode\n");
+        printf("  --verilog    Generate Verilog HDL module\n");
+        printf("  --testbench  Generate Verilog testbench\n");
+        printf("  --all-hdl    Generate all HDL files (module, testbench, stimulus, makefile)\n\n");
         
         const char* default_code =
         "int main() {\n"
@@ -187,6 +209,87 @@ int main(int argc, char* argv[]) {
                 free_hardware_context(hw_ctx);
             } else {
                 printf("Error: Failed to analyze hardware constructs\n");
+            }
+        }
+        
+        // 6. Microcode Generation if requested
+        if (generate_microcode) {
+            printf("\n--- Generating Hotstate Microcode ---\n");
+            
+            // First analyze hardware constructs
+            HardwareContext* hw_ctx = analyze_hardware_constructs(ast_root);
+            if (!hw_ctx) {
+                printf("Error: Failed to analyze hardware constructs\n");
+            } else {
+                // Build CFG if not already done
+                CFG* cfg = build_cfg_from_ast(ast_root);
+                if (!cfg) {
+                    printf("Error: Failed to build CFG from AST\n");
+                } else {
+                    // Generate microcode
+                    HotstateMicrocode* microcode = cfg_to_hotstate_microcode(cfg, hw_ctx);
+                    if (microcode) {
+                        // Print microcode table
+                        print_hotstate_microcode_table(microcode, stdout);
+                        
+                        // Print analysis
+                        print_microcode_analysis(microcode, stdout);
+                        
+                        // Generate memory files if input filename provided
+                        if (input_filename) {
+                            generate_all_output_files(microcode, input_filename);
+                        }
+                        
+                        free_hotstate_microcode(microcode);
+                    } else {
+                        printf("Error: Failed to generate microcode\n");
+                    }
+                    
+                    free_cfg(cfg);
+                }
+                
+                free_hardware_context(hw_ctx);
+            }
+        }
+        
+        // 7. Verilog HDL Generation if requested
+        if (generate_verilog || generate_testbench || generate_all_hdl) {
+            printf("\n--- Generating Verilog HDL ---\n");
+            
+            // First analyze hardware constructs
+            HardwareContext* hw_ctx = analyze_hardware_constructs(ast_root);
+            if (!hw_ctx) {
+                printf("Error: Failed to analyze hardware constructs\n");
+            } else {
+                // Build CFG if not already done
+                CFG* cfg = build_cfg_from_ast(ast_root);
+                if (!cfg) {
+                    printf("Error: Failed to build CFG from AST\n");
+                } else {
+                    // Generate microcode (needed for HDL generation)
+                    HotstateMicrocode* microcode = cfg_to_hotstate_microcode(cfg, hw_ctx);
+                    if (microcode) {
+                        // Set up Verilog generation options
+                        VerilogGenOptions options = {
+                            .generate_module = generate_verilog || generate_all_hdl,
+                            .generate_testbench = generate_testbench || generate_all_hdl,
+                            .generate_user_stim = generate_all_hdl,
+                            .generate_makefile = generate_all_hdl,
+                            .generate_all = generate_all_hdl
+                        };
+                        
+                        // Generate Verilog HDL
+                        generate_verilog_hdl(microcode, input_filename ? input_filename : "output", &options);
+                        
+                        free_hotstate_microcode(microcode);
+                    } else {
+                        printf("Error: Failed to generate microcode for HDL generation\n");
+                    }
+                    
+                    free_cfg(cfg);
+                }
+                
+                free_hardware_context(hw_ctx);
             }
         }
     } else {
