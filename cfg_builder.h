@@ -59,6 +59,9 @@ SSAValue* process_assignment(CFGBuilderContext* ctx, AssignmentNode* assign, Bas
 SSAValue* process_identifier(CFGBuilderContext* ctx, IdentifierNode* ident, BasicBlock* current);
 SSAValue* process_number_literal(CFGBuilderContext* ctx, NumberLiteralNode* num, BasicBlock* current);
 SSAValue* process_function_call(CFGBuilderContext* ctx, FunctionCallNode* call, BasicBlock* current);
+SSAValue* process_array_access(CFGBuilderContext* ctx, ArrayAccessNode* arr_access, BasicBlock* current);
+SSAValue* process_bool_literal(CFGBuilderContext* ctx, BoolLiteralNode* bool_lit, BasicBlock* current);
+SSAValue* process_initializer_list(CFGBuilderContext* ctx, InitializerListNode* init_list, BasicBlock* current);
 
 // Helper functions
 void finalize_block(BasicBlock* block);

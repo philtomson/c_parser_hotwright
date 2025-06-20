@@ -3,6 +3,9 @@
 
 #include "lexer.h"
 
+// Global debug flag (defined in main.c)
+extern int debug_mode;
+
 typedef enum {
     NODE_PROGRAM,
     NODE_FUNCTION_DEF,
@@ -19,8 +22,11 @@ typedef enum {
     NODE_BINARY_OP,        // <-- For expressions like a + b
     NODE_ASSIGNMENT,       // <-- For expressions like x = 5
     NODE_FUNCTION_CALL,    // <-- For function calls like f(x, y)
+    NODE_ARRAY_ACCESS,     // <-- For array indexing like arr[i]
+    NODE_INITIALIZER_LIST, // <-- For array initializers like {1, 2, 3}
     NODE_IDENTIFIER,
-    NODE_NUMBER_LITERAL
+    NODE_NUMBER_LITERAL,
+    NODE_BOOL_LITERAL      // <-- For true/false
 } NodeType;
 
 // Base struct for all AST nodes
@@ -56,8 +62,11 @@ typedef struct {
 
 typedef struct {
     Node base;
+    TokenType var_type;    // TOKEN_INT, TOKEN_BOOL, or TOKEN_BITINT
     char* var_name;
-    Node* initializer; // Can be NULL
+    int array_size;        // 0 for non-arrays, >0 for arrays
+    int bit_width;         // For _BitInt types, 0 for other types
+    Node* initializer;     // Can be NULL
 } VarDeclNode;
 
 typedef struct {
@@ -144,12 +153,28 @@ typedef struct {
     NodeList* arguments;
 } FunctionCallNode;
 
+typedef struct {
+    Node base;
+    Node* array;    // The array being accessed (usually an identifier)
+    Node* index;    // The index expression
+} ArrayAccessNode;
+
+typedef struct {
+    Node base;
+    int value;      // 0 for false, 1 for true
+} BoolLiteralNode;
+
+typedef struct {
+    Node base;
+    NodeList* elements;  // List of expressions in the initializer
+} InitializerListNode;
+
 
 // --- AST Creation Functions (with missing declarations added) ---
 Node* create_program_node();
 Node* create_function_def_node(char* name, NodeList* parameters, Node* body);
 Node* create_block_node();
-Node* create_var_decl_node(char* var_name, Node* initializer);
+Node* create_var_decl_node(TokenType var_type, char* var_name, int array_size, int bit_width, Node* initializer);
 Node* create_expression_statement_node(Node* expression);
 Node* create_switch_node(Node* expression);
 Node* create_case_node(Node* value);
@@ -164,6 +189,9 @@ Node* create_while_node(Node* condition, Node* body);
 Node* create_for_node(Node* init, Node* condition, Node* update, Node* body);
 Node* create_return_node(Node* return_value);
 Node* create_function_call_node(char* name, NodeList* arguments);
+Node* create_array_access_node(Node* array, Node* index);
+Node* create_bool_literal_node(int value);
+Node* create_initializer_list_node(NodeList* elements);
 // ... add others as you expand the language
 
 
@@ -171,5 +199,8 @@ Node* create_function_call_node(char* name, NodeList* arguments);
 NodeList* create_node_list();
 void add_node_to_list(NodeList* list, Node* node);
 void free_node(Node* node);
+
+// --- Debug Functions ---
+void print_debug(const char* format, ...);
 
 #endif // AST_H

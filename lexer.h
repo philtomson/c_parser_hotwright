@@ -5,7 +5,7 @@
 
 typedef enum {
     // Keywords
-    TOKEN_INT, TOKEN_IF, TOKEN_ELSE, TOKEN_WHILE, TOKEN_FOR, TOKEN_RETURN, TOKEN_BREAK,
+    TOKEN_INT, TOKEN_BOOL, TOKEN_BITINT, TOKEN_TRUE, TOKEN_FALSE, TOKEN_IF, TOKEN_ELSE, TOKEN_WHILE, TOKEN_FOR, TOKEN_RETURN, TOKEN_BREAK,
     TOKEN_SWITCH, TOKEN_CASE, TOKEN_DEFAULT,
     // Identifiers and Literals
     TOKEN_IDENTIFIER, TOKEN_NUMBER,
@@ -14,7 +14,8 @@ typedef enum {
     TOKEN_ASSIGN, TOKEN_EQUAL, TOKEN_NOT_EQUAL,
     TOKEN_LESS, TOKEN_LESS_EQUAL, TOKEN_GREATER, TOKEN_GREATER_EQUAL,
     // Punctuation
-    TOKEN_LPAREN, TOKEN_RPAREN, TOKEN_LBRACE, TOKEN_RBRACE, TOKEN_SEMICOLON, TOKEN_COLON, TOKEN_COMMA,
+    TOKEN_LPAREN, TOKEN_RPAREN, TOKEN_LBRACE, TOKEN_RBRACE, TOKEN_LBRACKET, TOKEN_RBRACKET,
+    TOKEN_SEMICOLON, TOKEN_COLON, TOKEN_COMMA,
     // End of File, Illegal
     TOKEN_EOF, TOKEN_ILLEGAL
 } TokenType;
@@ -22,6 +23,8 @@ typedef enum {
 typedef struct {
     TokenType type;
     char* value; // Malloc'd string
+    int line;    // Line number where token appears
+    int column;  // Column number where token starts
 } Token;
 
 // Opaque struct for the lexer state

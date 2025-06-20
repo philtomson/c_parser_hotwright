@@ -26,17 +26,21 @@ static Node* parse_equality(Parser* p);
 static Node* parse_relational(Parser* p);
 static Node* parse_additive(Parser* p);
 static Node* parse_multiplicative(Parser* p);
+static Node* parse_postfix(Parser* p);
 static Node* parse_primary(Parser* p);
+static Node* parse_initializer_list(Parser* p);
 
 static void debug_print_node(Node* node, const char* context) {
+    if (!debug_mode) return;
+    
     if (!node) {
-        printf("DEBUG: %s - NULL node\n", context);
+        print_debug("DEBUG: %s - NULL node\n", context);
         return;
     }
-    printf("DEBUG: %s - Node type %d at address %p\n", context, node->type, (void*)node);
+    print_debug("DEBUG: %s - Node type %d at address %p\n", context, node->type, (void*)node);
     if (node->type == NODE_IDENTIFIER) {
         IdentifierNode* id = (IdentifierNode*)node;
-        printf("  Identifier name: '%s' at address %p\n", id->name, (void*)id->name);
+        print_debug("  Identifier name: '%s' at address %p\n", id->name, (void*)id->name);
     }
 }
 
@@ -49,6 +53,13 @@ static void parser_error(const char* message) {
 }
 
 static Token current_token(Parser* p) { return p->tokens[p->pos]; }
+
+static void parser_error_at_token(Parser* p, const char* message) {
+    Token token = current_token(p);
+    fprintf(stderr, "Parse Error at line %d, column %d: %s\n", token.line, token.column, message);
+    fprintf(stderr, "  Token: %s ('%s')\n", token_type_to_string(token.type), token.value);
+    exit(1);
+}
 static Token peek_token(Parser* p) {
     if (p->pos + 1 < p->count) {
         return p->tokens[p->pos + 1];
@@ -71,8 +82,9 @@ static Token expect(Parser* p, TokenType type, const char* msg) {
         advance(p);
         return token;
     }
-    fprintf(stderr, "Parse Error: %s. Got %s ('%s') instead.\n",
-            msg, token_type_to_string(token.type), token.value);
+    fprintf(stderr, "Parse Error at line %d, column %d: %s\n", token.line, token.column, msg);
+    fprintf(stderr, "  Expected: %s, but got %s ('%s')\n",
+            token_type_to_string(type), token_type_to_string(token.type), token.value);
     exit(1);
 }
 
@@ -85,14 +97,51 @@ static Token expect(Parser* p, TokenType type, const char* msg) {
 
 
 static Node* parse_multiplicative(Parser* p) {
-    Node* node = parse_primary(p);
+    Node* node = parse_postfix(p);
     while (current_token(p).type == TOKEN_STAR || current_token(p).type == TOKEN_SLASH) {
         // Get the operator type BEFORE advancing.
         TokenType op = current_token(p).type;
         advance(p); // Manually advance instead of using match()
-        Node* right = parse_primary(p);
+        Node* right = parse_postfix(p);
         node = create_binary_op_node(op, node, right);
     }
+    return node;
+}
+
+static Node* parse_postfix(Parser* p) {
+    Node* node = parse_primary(p);
+    
+    while (1) {
+        if (match(p, TOKEN_LBRACKET)) {
+            // Array access
+            Node* index = parse_expression(p);
+            expect(p, TOKEN_RBRACKET, "Expected ']' after array index");
+            node = create_array_access_node(node, index);
+        } else if (current_token(p).type == TOKEN_LPAREN &&
+                   node->type == NODE_IDENTIFIER) {
+            // Function call
+            advance(p); // consume '('
+            NodeList* args = create_node_list();
+            
+            while (current_token(p).type != TOKEN_RPAREN) {
+                add_node_to_list(args, parse_expression(p));
+                if (!match(p, TOKEN_COMMA)) break;
+            }
+            
+            expect(p, TOKEN_RPAREN, "Expected ')' after function arguments");
+            
+            // Extract function name from identifier node
+            IdentifierNode* id_node = (IdentifierNode*)node;
+            node = create_function_call_node(strdup(id_node->name), args);
+            
+            // Free the original identifier node
+            free(id_node->name);
+            free(id_node);
+        } else {
+            break;
+        }
+    }
+    
     return node;
 }
 
@@ -114,32 +163,19 @@ static Node* parse_primary(Parser* p) {
             parser_error("Memory allocation failed for identifier");
         }
         advance(p);
-        
-        // Check if this is a function call
-        if (current_token(p).type == TOKEN_LPAREN) {
-            advance(p); // consume '('
-            NodeList* arguments = create_node_list();
-            
-            // Parse arguments
-            if (current_token(p).type != TOKEN_RPAREN) {
-                // First argument
-                add_node_to_list(arguments, parse_expression(p));
-                
-                // Additional arguments
-                while (match(p, TOKEN_COMMA)) {
-                    add_node_to_list(arguments, parse_expression(p));
-                }
-            }
-            
-            expect(p, TOKEN_RPAREN, "Expected ')' after function arguments");
-            Node* node = create_function_call_node(value, arguments);
-            debug_print_node(node, "Created function call");
-            return node;
-        } else {
-            Node* node = create_identifier_node(value);
-            debug_print_node(node, "Created identifier");
-            return node;
-        }
+        Node* node = create_identifier_node(value);
+        debug_print_node(node, "Created identifier");
+        return node;
+    }
+    
+    if (current_token(p).type == TOKEN_TRUE) {
+        advance(p);
+        return create_bool_literal_node(1);
+    }
+    
+    if (current_token(p).type == TOKEN_FALSE) {
+        advance(p);
+        return create_bool_literal_node(0);
     }
     
     if (match(p, TOKEN_LPAREN)) {
@@ -148,8 +184,33 @@ static Node* parse_primary(Parser* p) {
         return expr;
     }
 
-    parser_error("Unexpected token in expression");
+    parser_error_at_token(p, "Unexpected token in expression");
     return NULL;
+}
+
+static Node* parse_initializer_list(Parser* p) {
+    expect(p, TOKEN_LBRACE, "Expected '{' to start initializer list");
+    
+    NodeList* elements = create_node_list();
+    
+    // Handle empty initializer list
+    if (current_token(p).type == TOKEN_RBRACE) {
+        advance(p);
+        return create_initializer_list_node(elements);
+    }
+    
+    // Parse first element
+    Node* element = parse_expression(p);
+    add_node_to_list(elements, element);
+    
+    // Parse remaining elements
+    while (match(p, TOKEN_COMMA)) {
+        element = parse_expression(p);
+        add_node_to_list(elements, element);
+    }
+    
+    expect(p, TOKEN_RBRACE, "Expected '}' to end initializer list");
+    return create_initializer_list_node(elements);
 }
 
 static Node* parse_additive(Parser* p) {
@@ -205,8 +266,8 @@ static Node* parse_assignment(Parser* p) {
             parser_error("Missing left-hand side of assignment.");
         }
 
-        if (left->type != NODE_IDENTIFIER) {
-            parser_error("Invalid assignment target. Must be an identifier.");
+        if (left->type != NODE_IDENTIFIER && left->type != NODE_ARRAY_ACCESS) {
+            parser_error_at_token(p, "Invalid assignment target. Must be an identifier or array element.");
         }
         
         debug_print_node(left, "Assignment LHS");
@@ -237,15 +298,51 @@ static Node* parse_expression_statement(Parser* p) {
 }
 
 static Node* parse_declaration_statement(Parser* p) {
-    expect(p, TOKEN_INT, "Expected 'int' for declaration");
+    // Parse type (int, bool, or _BitInt)
+    TokenType var_type;
+    int bit_width = 0;
+    
+    if (match(p, TOKEN_INT)) {
+        var_type = TOKEN_INT;
+    } else if (match(p, TOKEN_BOOL)) {
+        var_type = TOKEN_BOOL;
+    } else if (match(p, TOKEN_BITINT)) {
+        var_type = TOKEN_BITINT;
+        // Parse _BitInt(n) syntax
+        expect(p, TOKEN_LPAREN, "Expected '(' after '_BitInt'");
+        Token width_tok = expect(p, TOKEN_NUMBER, "Expected bit width number");
+        bit_width = atoi(width_tok.value);
+        if (bit_width <= 0) {
+            parser_error_at_token(p, "_BitInt width must be positive");
+            return NULL;
+        }
+        expect(p, TOKEN_RPAREN, "Expected ')' after bit width");
+    } else {
+        parser_error_at_token(p, "Expected 'int', 'bool', or '_BitInt' for declaration");
+        return NULL;
+    }
+    
     Token id_tok = expect(p, TOKEN_IDENTIFIER, "Expected identifier in declaration");
+    
+    // Check for array declaration
+    int array_size = 0;
+    if (match(p, TOKEN_LBRACKET)) {
+        Token size_tok = expect(p, TOKEN_NUMBER, "Expected array size");
+        array_size = atoi(size_tok.value);
+        expect(p, TOKEN_RBRACKET, "Expected ']' after array size");
+    }
     
     Node* initializer = NULL;
     if (match(p, TOKEN_ASSIGN)) {
-        initializer = parse_expression(p);
+        // Check if this is an array with initializer list or _BitInt with bit initializer
+        if ((array_size > 0 || var_type == TOKEN_BITINT) && current_token(p).type == TOKEN_LBRACE) {
+            initializer = parse_initializer_list(p);
+        } else {
+            initializer = parse_expression(p);
+        }
     }
     expect(p, TOKEN_SEMICOLON, "Expected ';' after declaration");
-    return create_var_decl_node(strdup(id_tok.value), initializer);
+    return create_var_decl_node(var_type, strdup(id_tok.value), array_size, bit_width, initializer);
 }
 
 static Node* parse_switch_statement(Parser* p) {
@@ -318,7 +415,8 @@ static Node* parse_for_statement(Parser* p) {
     // Parse init (can be empty)
     Node* init = NULL;
     if (current_token(p).type != TOKEN_SEMICOLON) {
-        if (current_token(p).type == TOKEN_INT && peek_token(p).type == TOKEN_IDENTIFIER) {
+        if ((current_token(p).type == TOKEN_INT || current_token(p).type == TOKEN_BOOL) &&
+            peek_token(p).type == TOKEN_IDENTIFIER) {
             init = parse_declaration_statement(p);
             // Declaration already consumes semicolon
         } else {
@@ -349,9 +447,14 @@ static Node* parse_for_statement(Parser* p) {
 }
 
 static Node* parse_statement(Parser* p) {
-    // Check for declaration: 'int' followed by an identifier
-    if (current_token(p).type == TOKEN_INT && peek_token(p).type == TOKEN_IDENTIFIER) {
-        return parse_declaration_statement(p);
+    // Check for declaration: 'int', 'bool', or '_BitInt' followed by an identifier
+    if ((current_token(p).type == TOKEN_INT || current_token(p).type == TOKEN_BOOL || current_token(p).type == TOKEN_BITINT)) {
+        // For _BitInt, we need to check if it's followed by (n) and then identifier
+        if (current_token(p).type == TOKEN_BITINT) {
+            return parse_declaration_statement(p);
+        } else if (peek_token(p).type == TOKEN_IDENTIFIER) {
+            return parse_declaration_statement(p);
+        }
     }
 
     switch (current_token(p).type) {
@@ -435,8 +538,39 @@ void parser_destroy(Parser* parser) {
 Node* parse(Parser* parser) {
     ProgramNode* program = (ProgramNode*)create_program_node();
     while (current_token(parser).type != TOKEN_EOF) {
-        // Our simple language only supports function definitions at the top level
-        add_node_to_list(program->functions, parse_function_definition(parser));
+        // Check if this is a function definition or global variable declaration
+        if (current_token(parser).type == TOKEN_INT || current_token(parser).type == TOKEN_BOOL || current_token(parser).type == TOKEN_BITINT) {
+            
+            // Look ahead to see if this is a function (has parentheses) or variable
+            Parser temp_parser = *parser;
+            advance(&temp_parser); // skip type
+            
+            // For _BitInt, we need to skip the (n) part
+            if (parser->tokens[parser->pos].type == TOKEN_BITINT) {
+                if (current_token(&temp_parser).type == TOKEN_LPAREN) {
+                    advance(&temp_parser); // skip '('
+                    advance(&temp_parser); // skip number
+                    advance(&temp_parser); // skip ')'
+                }
+            }
+            
+            // Now check for identifier
+            if (current_token(&temp_parser).type == TOKEN_IDENTIFIER) {
+                advance(&temp_parser); // skip identifier
+                
+                if (current_token(&temp_parser).type == TOKEN_LPAREN) {
+                    // This is a function definition
+                    add_node_to_list(program->functions, parse_function_definition(parser));
+                } else {
+                    // This is a global variable declaration
+                    add_node_to_list(program->functions, parse_declaration_statement(parser));
+                }
+            } else {
+                parser_error("Expected identifier after type");
+            }
+        } else {
+            parser_error("Expected function definition or global variable declaration");
+        }
     }
     return (Node*)program;
 }

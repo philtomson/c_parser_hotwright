@@ -5,6 +5,12 @@
 #include "lexer.h"
 #include "parser.h"
 #include "ast.h"
+#include "cfg.h"
+#include "cfg_builder.h"
+#include "cfg_utils.h"
+
+// Global debug flag
+int debug_mode = 0;
 
 // A simple recursive AST printer for visualization
 void print_ast(Node* node, int indent);
@@ -38,20 +44,59 @@ char* read_file(const char* filename) {
     return buffer;
 }
 
+// Generate dot filename from source filename
+char* generate_dot_filename(const char* source_filename) {
+    const char* dot_pos = strrchr(source_filename, '.');
+    size_t base_len = dot_pos ? (size_t)(dot_pos - source_filename) : strlen(source_filename);
+    
+    char* dot_filename = malloc(base_len + 5); // +4 for ".dot" +1 for null terminator
+    if (!dot_filename) {
+        return NULL;
+    }
+    
+    strncpy(dot_filename, source_filename, base_len);
+    dot_filename[base_len] = '\0';
+    strcat(dot_filename, ".dot");
+    
+    return dot_filename;
+}
+
 int main(int argc, char* argv[]) {
     char* source_code = NULL;
+    char* input_filename = NULL;
+    bool generate_dot = false;
     
-    if (argc > 1) {
+    // Parse command line arguments
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--dot") == 0) {
+            generate_dot = true;
+        } else if (strcmp(argv[i], "--debug") == 0) {
+            debug_mode = 1;
+        } else if (argv[i][0] != '-') {
+            // This is the input filename
+            input_filename = argv[i];
+        } else {
+            printf("Unknown option: %s\n", argv[i]);
+            printf("Usage: %s [--dot] [--debug] <filename.c>\n", argv[0]);
+            printf("  --dot    Generate a DOT file for CFG visualization\n");
+            printf("  --debug  Enable debug output messages\n");
+            return 1;
+        }
+    }
+    
+    if (input_filename) {
         // Read from file
-        source_code = read_file(argv[1]);
+        source_code = read_file(input_filename);
         if (!source_code) {
             return 1;
         }
-        printf("Parsing file: %s\n", argv[1]);
+        printf("Parsing file: %s\n", input_filename);
     } else {
         // Use default test code
         printf("No file specified. Using default test code.\n");
-        printf("Usage: %s <filename.c>\n\n", argv[0]);
+        printf("Usage: %s [--dot] [--debug] <filename.c>\n", argv[0]);
+        printf("  --dot    Generate a DOT file for CFG visualization\n");
+        printf("  --debug  Enable debug output messages\n\n");
         
         const char* default_code =
         "int main() {\n"
@@ -93,11 +138,44 @@ int main(int argc, char* argv[]) {
     if (ast_root) {
         printf("\n--- Abstract Syntax Tree ---\n");
         print_ast(ast_root, 0);
+        
+        // 4. Generate CFG and DOT file if requested
+        if (generate_dot) {
+            printf("\n--- Generating Control Flow Graph ---\n");
+            CFG* cfg = build_cfg_from_ast(ast_root);
+            if (cfg) {
+                char* dot_filename;
+                if (input_filename) {
+                    dot_filename = generate_dot_filename(input_filename);
+                } else {
+                    dot_filename = strdup("default.dot");
+                }
+                
+                if (dot_filename) {
+                    cfg_to_dot(cfg, dot_filename);
+                    printf("Generated DOT file: %s\n", dot_filename);
+                    printf("To visualize: dot -Tpng %s -o %s.png\n", dot_filename,
+                           dot_filename); // This will create filename.dot.png
+                    
+                    // Also print CFG to console
+                    printf("\n--- Control Flow Graph ---\n");
+                    print_cfg(cfg);
+                    
+                    free(dot_filename);
+                } else {
+                    printf("Error: Failed to generate dot filename\n");
+                }
+                
+                free_cfg(cfg);
+            } else {
+                printf("Error: Failed to build CFG from AST\n");
+            }
+        }
     } else {
         printf("Parsing failed to produce an AST.\n");
     }
 
-    // 4. Cleanup
+    // 5. Cleanup
     free_node(ast_root);
     for (int i = 0; i < token_count; i++) {
         free(tokens[i].value);

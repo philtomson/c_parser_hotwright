@@ -1,6 +1,19 @@
 #include "ast.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
+#include <stdarg.h>
+
+// --- Debug Functions ---
+
+void print_debug(const char* format, ...) {
+    if (!debug_mode) return;
+    
+    va_list args;
+    va_start(args, format);
+    vprintf(format, args);
+    va_end(args);
+}
 
 // Helper to create a node list
 NodeList* create_node_list() {
@@ -45,10 +58,13 @@ Node* create_block_node() {
     return (Node*)node;
 }
 
-Node* create_var_decl_node(char* var_name, Node* initializer) {
+Node* create_var_decl_node(TokenType var_type, char* var_name, int array_size, int bit_width, Node* initializer) {
     VarDeclNode* node = malloc(sizeof(VarDeclNode));
     node->base.type = NODE_VAR_DECL;
+    node->var_type = var_type;
     node->var_name = var_name;
+    node->array_size = array_size;
+    node->bit_width = bit_width;
     node->initializer = initializer;
     return (Node*)node;
 }
@@ -159,6 +175,28 @@ Node* create_function_call_node(char* name, NodeList* arguments) {
     node->base.type = NODE_FUNCTION_CALL;
     node->name = name;
     node->arguments = arguments;
+    return (Node*)node;
+}
+
+Node* create_array_access_node(Node* array, Node* index) {
+    ArrayAccessNode* node = malloc(sizeof(ArrayAccessNode));
+    node->base.type = NODE_ARRAY_ACCESS;
+    node->array = array;
+    node->index = index;
+    return (Node*)node;
+}
+
+Node* create_bool_literal_node(int value) {
+    BoolLiteralNode* node = malloc(sizeof(BoolLiteralNode));
+    node->base.type = NODE_BOOL_LITERAL;
+    node->value = value;
+    return (Node*)node;
+}
+
+Node* create_initializer_list_node(NodeList* elements) {
+    InitializerListNode* node = malloc(sizeof(InitializerListNode));
+    node->base.type = NODE_INITIALIZER_LIST;
+    node->elements = elements;
     return (Node*)node;
 }
 
@@ -280,11 +318,28 @@ void free_node(Node* node) {
             free_node_list(n->arguments);
             break;
         }
+        case NODE_ARRAY_ACCESS: {
+            ArrayAccessNode* n = (ArrayAccessNode*)node;
+            free_node(n->array);
+            free_node(n->index);
+            break;
+        }
+        case NODE_BOOL_LITERAL: {
+            // BoolLiteralNode has no dynamically allocated members
+            break;
+        }
+        case NODE_INITIALIZER_LIST: {
+            InitializerListNode* n = (InitializerListNode*)node;
+            free_node_list(n->elements);
+            break;
+        }
     }
     // Finally, free the node struct itself.
     // This is the call that is crashing at ast.c:145
-    printf("DEBUG: About to free node at address %p, type %d\n", (void*)node, node->type);
-    fflush(stdout);  // Make sure the output appears before the crash
+    print_debug("DEBUG: About to free node at address %p, type %d\n", (void*)node, node->type);
+    if (debug_mode) {
+        fflush(stdout);  // Make sure the output appears before the crash
+    }
     free(node);
-    printf("DEBUG: Successfully freed node\n");  // This won't print if free() crashes
+    print_debug("DEBUG: Successfully freed node\n");  // This won't print if free() crashes
 }

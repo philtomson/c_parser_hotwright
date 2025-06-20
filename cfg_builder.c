@@ -375,6 +375,12 @@ SSAValue* process_expression(CFGBuilderContext* ctx, Node* expr, BasicBlock* cur
             return process_number_literal(ctx, (NumberLiteralNode*)expr, current);
         case NODE_FUNCTION_CALL:
             return process_function_call(ctx, (FunctionCallNode*)expr, current);
+        case NODE_ARRAY_ACCESS:
+            return process_array_access(ctx, (ArrayAccessNode*)expr, current);
+        case NODE_BOOL_LITERAL:
+            return process_bool_literal(ctx, (BoolLiteralNode*)expr, current);
+        case NODE_INITIALIZER_LIST:
+            return process_initializer_list(ctx, (InitializerListNode*)expr, current);
         default:
             return NULL;
     }
@@ -438,6 +444,53 @@ SSAValue* process_function_call(CFGBuilderContext* ctx, FunctionCallNode* call, 
     if (args) free(args);
     
     return result;
+}
+
+SSAValue* process_array_access(CFGBuilderContext* ctx, ArrayAccessNode* arr_access, BasicBlock* current) {
+    // Process the array expression (usually an identifier)
+    SSAValue* array = process_expression(ctx, arr_access->array, current);
+    
+    // Process the index expression
+    SSAValue* index = process_expression(ctx, arr_access->index, current);
+    
+    // Create a temporary for the result
+    SSAValue* result = create_ssa_temp(ctx->next_temp_id++);
+    
+    // For now, we'll create a LOAD instruction (in a full implementation,
+    // this would generate proper array access code)
+    SSAInstruction* inst = create_ssa_binary_op(result, TOKEN_LBRACKET, array, index);
+    add_instruction(current->instructions, inst);
+    
+    return result;
+}
+
+SSAValue* process_bool_literal(CFGBuilderContext* ctx, BoolLiteralNode* bool_lit, BasicBlock* current) {
+    (void)ctx; // Unused
+    (void)current; // Unused
+    return create_ssa_const(bool_lit->value);
+}
+
+SSAValue* process_initializer_list(CFGBuilderContext* ctx, InitializerListNode* init_list, BasicBlock* current) {
+    // For now, we'll create a temporary array value and generate assignment instructions
+    // for each element. In a more complete implementation, this would involve
+    // memory allocation and proper array initialization.
+    
+    // Create a temporary for the array
+    SSAValue* array_temp = create_ssa_temp(ctx->next_temp_id++);
+    
+    // Process each element and generate assignment instructions
+    for (int i = 0; i < init_list->elements->count; i++) {
+        SSAValue* element_value = process_expression(ctx, init_list->elements->items[i], current);
+        
+        // For now, we'll create a simple assignment instruction to represent
+        // the array element initialization. In a more complete implementation,
+        // this would be array store operations.
+        SSAValue* element_temp = create_ssa_temp(ctx->next_temp_id++);
+        SSAInstruction* assign = create_ssa_assign(element_temp, element_value);
+        add_instruction(current->instructions, assign);
+    }
+    
+    return array_temp;
 }
 
 // --- Helper Functions ---

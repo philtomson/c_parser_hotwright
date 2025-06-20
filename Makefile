@@ -34,7 +34,7 @@ ast.o: ast.c ast.h lexer.h
 cfg.o: cfg.c cfg.h ast.h lexer.h
 cfg_builder.o: cfg_builder.c cfg_builder.h cfg.h ast.h lexer.h
 cfg_utils.o: cfg_utils.c cfg_utils.h cfg.h ast.h lexer.h
-main.o: main.c parser.h lexer.h ast.h
+main.o: main.c parser.h lexer.h ast.h cfg.h cfg_builder.h cfg_utils.h
 test_cfg.o: test_cfg.c parser.h lexer.h ast.h cfg.h cfg_builder.h cfg_utils.h
 
 # Clean

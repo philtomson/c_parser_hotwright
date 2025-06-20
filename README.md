@@ -5,10 +5,12 @@ A recursive descent C parser that builds an Abstract Syntax Tree (AST) and gener
 ## Features
 
 ### Parser Features
-- **Lexical Analysis**: Tokenizes C source code
+- **Lexical Analysis**: Tokenizes C source code with line/column tracking
 - **Recursive Descent Parsing**: Builds AST from tokens
+- **Enhanced Error Reporting**: Precise error messages with line and column numbers
 - **Supported Language Constructs**:
-  - Variable declarations (`int x = 5;`)
+  - Variable declarations (`int x = 5;`, `bool flag = true;`)
+  - **C23 `_BitInt` Types**: Bit-precise integers with indexing (`_BitInt(8) x = {1,0,1,1,0,0,1,0};`)
   - Arithmetic expressions with proper precedence
   - Control structures:
     - If-else statements
@@ -51,9 +53,15 @@ This builds:
 ./c_parser
 ```
 
-### CFG Generation
+### CFG Generation with DOT Output
 
 ```bash
+# Generate CFG and DOT file for visualization
+./c_parser --dot test/test_simple.c
+
+# Enable debug output to see detailed parsing information
+./c_parser --debug --dot test/test_simple.c
+
 # Run CFG tests
 ./test_cfg
 
@@ -62,6 +70,36 @@ make graphs
 ```
 
 This creates DOT files and PNG images showing the control flow graphs.
+
+### C23 `_BitInt` Support
+
+The parser supports C23 `_BitInt` types with a unique bit-indexing feature:
+
+```c
+int main() {
+    _BitInt(3) x = {1, 0, 1};  // x = 5 (binary 101)
+    _BitInt(8) byte = 255;     // 8-bit integer
+    
+    if (x[1]) {                // Test bit 1
+        x[2] = 0;              // Clear bit 2
+    }
+    
+    byte[7] = x[0];            // Copy bit 0 of x to bit 7 of byte
+    return 0;
+}
+```
+
+See `docs/bitint_feature.md` for complete documentation.
+
+### Enhanced Error Messages
+
+The parser provides detailed error reporting with line and column information:
+
+```bash
+$ ./c_parser test_errors.c
+Parse Error at line 2, column 14: _BitInt width must be positive
+  Token: RPAREN (')')
+```
 
 ## Project Structure
 
@@ -118,10 +156,39 @@ See `docs/cfg_ssa_design.md` for planned enhancements:
 - Code generation backends
 - Advanced analyses (dominance, loop detection)
 
+## Developer Information
+
+### Debug Output
+
+The parser includes a centralized debug output system:
+
+```c
+// Use this function instead of printf for debug output
+print_debug("DEBUG: Processing node type %d\n", node->type);
+
+// The function automatically checks debug_mode and only prints when enabled
+// Equivalent to:
+// if (debug_mode) {
+//     printf("DEBUG: Processing node type %d\n", node->type);
+// }
+```
+
+**Benefits:**
+- Cleaner code without scattered `if (debug_mode)` checks
+- Centralized debug control
+- Support for printf-style formatting with variable arguments
+- Easy to enable/disable debug output globally
+
+**Usage in Code:**
+- Include `ast.h` to access the `print_debug()` function
+- Replace `if (debug_mode) { printf(...); }` with `print_debug(...)`
+- The function handles the debug mode check internally
+
 ## Documentation
 
 - `README_CFG.md` - Detailed CFG implementation documentation
 - `docs/cfg_ssa_design.md` - Comprehensive design for SSA form and optimizations
+- `docs/bitint_feature.md` - Complete `_BitInt` type documentation with examples
 
 ## License
 
