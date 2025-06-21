@@ -1,0 +1,30 @@
+# Auto-generated Makefile for test_scoping_advanced simulation
+
+MODULE = test_scoping_advanced
+SIMULATOR = verilator
+VIEWER = gtkwave
+
+# Default target
+all: sim
+
+# Compile and run simulation
+sim: $(MODULE)_tb.v $(MODULE)_template.v user.v sim_main.cpp verilator_sim.h
+	$(SIMULATOR) --cc -Wno-fatal --exe --trace --trace-structs --build -I. sim_main.cpp $(MODULE)_tb.v $(MODULE)_template.v IP/hotstate.sv IP/microcode.sv IP/control.sv IP/next_address.sv IP/stack.sv IP/switch.sv IP/timer.sv IP/variable.sv --top $(MODULE)_tb
+	@echo "Running simulation..."
+	./obj_dir/V$(MODULE)_tb
+	@echo "Simulation completed! Waveform saved to sim_wf.vcd"
+
+# Lint-only check
+lint: $(MODULE)_tb.v $(MODULE)_template.v
+	$(SIMULATOR) --lint-only -Wall -Wno-WIDTH -Wno-UNUSED -Wno-DECLFILENAME -Wno-EOFNEWLINE -Wno-SYMRSVDWORD -Wno-PINMISSING -Wno-TIMESCALEMOD -Wno-LITENDIAN -Wno-SELRANGE -Wno-STMTDLY -Wno-PINCONNECTEMPTY -Wno-UNDRIVEN -Wno-BLKSEQ $(MODULE)_tb.v $(MODULE)_template.v IP/hotstate.sv IP/microcode.sv IP/control.sv IP/next_address.sv IP/stack.sv IP/switch.sv IP/timer.sv IP/variable.sv
+	@echo "Verilog lint check successful!"
+
+# View waveforms
+wave: sim
+	$(VIEWER) sim_wf.vcd
+
+# Clean generated files
+clean:
+	rm -rf obj_dir sim_wf.vcd sim_main.cpp verilator_sim.h
+
+.PHONY: all sim wave clean

@@ -1,0 +1,1 @@
+// Simple header with no global declarations

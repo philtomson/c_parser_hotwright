@@ -16,13 +16,17 @@ typedef struct CFGBuilderContext {
         struct LoopContext* parent;
     }* loop_context;
     
-    // For tracking variable versions (simple version for now)
+    // For tracking variable versions with proper scoping
     struct VarVersion {
         char* name;
         int version;
+        int scope_level;  // Track which scope this variable belongs to
     }* var_versions;
     int var_count;
     int var_capacity;
+    
+    // Scope tracking
+    int current_scope_level;
     
     // Temporary counter
     int next_temp_id;
@@ -36,8 +40,10 @@ CFG* build_function_cfg(FunctionDefNode* func);
 CFGBuilderContext* create_builder_context(CFG* cfg);
 void free_builder_context(CFGBuilderContext* ctx);
 
-// Variable version tracking (simplified for initial implementation)
+// Variable version tracking with scoping support
 int get_var_version(CFGBuilderContext* ctx, const char* name);
+void enter_scope(CFGBuilderContext* ctx);
+void exit_scope(CFGBuilderContext* ctx);
 int increment_var_version(CFGBuilderContext* ctx, const char* name);
 SSAValue* get_current_var_value(CFGBuilderContext* ctx, const char* name);
 

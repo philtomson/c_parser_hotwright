@@ -17,6 +17,7 @@ CFGBuilderContext* create_builder_context(CFG* cfg) {
     ctx->var_count = 0;
     ctx->var_capacity = 0;
     ctx->next_temp_id = 0;
+    ctx->current_scope_level = 0;  // Start at global scope
     
     return ctx;
 }
@@ -43,7 +44,9 @@ void free_builder_context(CFGBuilderContext* ctx) {
 // --- Variable Version Tracking ---
 
 int get_var_version(CFGBuilderContext* ctx, const char* name) {
-    for (int i = 0; i < ctx->var_count; i++) {
+    // Search from most recent (highest scope) to oldest (lowest scope)
+    // This implements proper variable shadowing
+    for (int i = ctx->var_count - 1; i >= 0; i--) {
         if (strcmp(ctx->var_versions[i].name, name) == 0) {
             return ctx->var_versions[i].version;
         }
@@ -52,14 +55,10 @@ int get_var_version(CFGBuilderContext* ctx, const char* name) {
 }
 
 int increment_var_version(CFGBuilderContext* ctx, const char* name) {
-    // Find existing variable
-    for (int i = 0; i < ctx->var_count; i++) {
-        if (strcmp(ctx->var_versions[i].name, name) == 0) {
-            return ++ctx->var_versions[i].version;
-        }
-    }
+    // For variable declarations, always create a new version in current scope
+    // This handles both new variables and variable shadowing
     
-    // Add new variable
+    // Add new variable version
     if (ctx->var_count >= ctx->var_capacity) {
         int new_capacity = ctx->var_capacity == 0 ? 8 : ctx->var_capacity * 2;
         struct VarVersion* new_versions = (struct VarVersion*)realloc(ctx->var_versions,
@@ -69,11 +68,49 @@ int increment_var_version(CFGBuilderContext* ctx, const char* name) {
         ctx->var_capacity = new_capacity;
     }
     
+    // Find the highest version number for this variable name across all scopes
+    int max_version = 0;
+    for (int i = 0; i < ctx->var_count; i++) {
+        if (strcmp(ctx->var_versions[i].name, name) == 0) {
+            if (ctx->var_versions[i].version > max_version) {
+                max_version = ctx->var_versions[i].version;
+            }
+        }
+    }
+    
     ctx->var_versions[ctx->var_count].name = strdup(name);
-    ctx->var_versions[ctx->var_count].version = 1;
+    ctx->var_versions[ctx->var_count].version = max_version + 1;
+    ctx->var_versions[ctx->var_count].scope_level = ctx->current_scope_level;
     ctx->var_count++;
     
-    return 1;
+    return max_version + 1;
+}
+
+// --- Scope Management ---
+
+void enter_scope(CFGBuilderContext* ctx) {
+    ctx->current_scope_level++;
+}
+
+void exit_scope(CFGBuilderContext* ctx) {
+    if (ctx->current_scope_level <= 0) return; // Don't go below global scope
+    
+    // Remove all variables from the current scope level
+    int write_index = 0;
+    for (int read_index = 0; read_index < ctx->var_count; read_index++) {
+        if (ctx->var_versions[read_index].scope_level < ctx->current_scope_level) {
+            // Keep variables from outer scopes
+            if (write_index != read_index) {
+                ctx->var_versions[write_index] = ctx->var_versions[read_index];
+            }
+            write_index++;
+        } else {
+            // Free variables from current scope
+            free(ctx->var_versions[read_index].name);
+        }
+    }
+    ctx->var_count = write_index;
+    ctx->current_scope_level--;
 }
 
 SSAValue* get_current_var_value(CFGBuilderContext* ctx, const char* name) {
@@ -119,6 +156,9 @@ CFG* build_function_cfg(FunctionDefNode* func) {
     cfg->exit = create_basic_block(cfg, "exit");
     ctx->current_block = cfg->entry;
     
+    // Enter function scope (scope level 1)
+    enter_scope(ctx);
+    
     // Process function parameters (create initial versions)
     for (int i = 0; i < func->parameters->count; i++) {
         IdentifierNode* param = (IdentifierNode*)func->parameters->items[i];
@@ -129,6 +169,9 @@ CFG* build_function_cfg(FunctionDefNode* func) {
     
     // Process function body
     BasicBlock* last_block = process_statement(ctx, func->body, ctx->current_block);
+    
+    // Exit function scope
+    exit_scope(ctx);
     
     // If the last block doesn't end with a return, add edge to exit
     if (last_block && last_block->instructions->count > 0) {
@@ -176,10 +219,16 @@ BasicBlock* process_statement(CFGBuilderContext* ctx, Node* stmt, BasicBlock* cu
 }
 
 BasicBlock* process_block(CFGBuilderContext* ctx, BlockNode* block, BasicBlock* current) {
+    // Enter new scope for this block
+    enter_scope(ctx);
+    
     for (int i = 0; i < block->statements->count; i++) {
         current = process_statement(ctx, block->statements->items[i], current);
         if (!current) break; // Block terminated early (e.g., by return)
     }
+    
+    // Exit scope when leaving the block
+    exit_scope(ctx);
     return current;
 }
 
