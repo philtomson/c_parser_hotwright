@@ -45,10 +45,31 @@ test_cfg.o: test_cfg.c parser.h lexer.h ast.h cfg.h cfg_builder.h cfg_utils.h
 # Clean
 clean:
 	rm -f $(OBJS) $(MAIN_OBJ) $(TEST_OBJS) c_parser test_cfg *.dot *.png
+	rm -f test/*.vcd test/*_template.v test/*_tb.v test/Makefile.sim test/sim_main.cpp test/verilator_sim.h test/user.v
+	rm -f test/*_smdata.mem test/*_vardata.mem
 
-# Run tests
+# Run CFG tests
 test: test_cfg
 	./test_cfg
+
+# Run comprehensive parser tests
+run_tests: c_parser
+	@echo "Running comprehensive c_parser test suite..."
+	@cd test && ./run_tests.sh
+
+# Run tests with detailed output
+test_verbose: c_parser
+	@echo "Running tests with detailed output..."
+	@cd test && ./run_tests.sh --verbose
+
+# Test specific functionality
+test_multi_vars: c_parser
+	@echo "Testing multiple variable declarations..."
+	./c_parser test/test_multi_vars.c --all-hdl
+
+test_includes: c_parser
+	@echo "Testing #include functionality..."
+	./c_parser test/test_include_multi.c --all-hdl
 
 # Generate and view graphs
 graphs: test_cfg
@@ -61,4 +82,4 @@ graphs: test_cfg
 		fi \
 	done
 
-.PHONY: all clean test graphs
+.PHONY: all clean test run_tests test_verbose test_multi_vars test_includes graphs

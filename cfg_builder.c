@@ -89,10 +89,17 @@ CFG* build_cfg_from_ast(Node* ast) {
     ProgramNode* program = (ProgramNode*)ast;
     if (program->functions->count == 0) return NULL;
     
-    // For now, just build CFG for the first function
-    // In a real implementation, we'd build CFGs for all functions
-    Node* first_func = program->functions->items[0];
-    if (first_func->type != NODE_FUNCTION_DEF) return NULL;
+    // Find the first function (skip global variable declarations)
+    Node* first_func = NULL;
+    for (int i = 0; i < program->functions->count; i++) {
+        Node* item = program->functions->items[i];
+        if (item->type == NODE_FUNCTION_DEF) {
+            first_func = item;
+            break;
+        }
+    }
+    
+    if (!first_func) return NULL;
     
     return build_function_cfg((FunctionDefNode*)first_func);
 }

@@ -343,6 +343,7 @@ static Node* parse_declaration_statement(Parser* p) {
         return NULL;
     }
     
+    // Parse first variable
     Token id_tok = expect(p, TOKEN_IDENTIFIER, "Expected identifier in declaration");
     
     // Check for array declaration
@@ -362,8 +363,48 @@ static Node* parse_declaration_statement(Parser* p) {
             initializer = parse_expression(p);
         }
     }
-    expect(p, TOKEN_SEMICOLON, "Expected ';' after declaration");
-    return create_var_decl_node(var_type, strdup(id_tok.value), array_size, bit_width, initializer);
+    
+    // Create first variable declaration
+    Node* first_decl = create_var_decl_node(var_type, strdup(id_tok.value), array_size, bit_width, initializer);
+    
+    // Check for comma-separated additional variables
+    if (current_token(p).type == TOKEN_COMMA) {
+        // Create a block to hold multiple declarations
+        BlockNode* block = (BlockNode*)create_block_node();
+        add_node_to_list(block->statements, first_decl);
+        
+        while (match(p, TOKEN_COMMA)) {
+            Token next_id_tok = expect(p, TOKEN_IDENTIFIER, "Expected identifier after ','");
+            
+            // Check for array declaration on additional variables
+            int next_array_size = 0;
+            if (match(p, TOKEN_LBRACKET)) {
+                Token size_tok = expect(p, TOKEN_NUMBER, "Expected array size");
+                next_array_size = atoi(size_tok.value);
+                expect(p, TOKEN_RBRACKET, "Expected ']' after array size");
+            }
+            
+            Node* next_initializer = NULL;
+            if (match(p, TOKEN_ASSIGN)) {
+                // Check if this is an array with initializer list or _BitInt with bit initializer
+                if ((next_array_size > 0 || var_type == TOKEN_BITINT) && current_token(p).type == TOKEN_LBRACE) {
+                    next_initializer = parse_initializer_list(p);
+                } else {
+                    next_initializer = parse_expression(p);
+                }
+            }
+            
+            Node* next_decl = create_var_decl_node(var_type, strdup(next_id_tok.value), next_array_size, bit_width, next_initializer);
+            add_node_to_list(block->statements, next_decl);
+        }
+        
+        expect(p, TOKEN_SEMICOLON, "Expected ';' after declaration");
+        return (Node*)block;
+    } else {
+        // Single variable declaration
+        expect(p, TOKEN_SEMICOLON, "Expected ';' after declaration");
+        return first_decl;
+    }
 }
 
 static Node* parse_switch_statement(Parser* p) {
