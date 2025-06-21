@@ -11,6 +11,7 @@
 #include "hw_analyzer.h"
 #include "cfg_to_microcode.h"
 #include "verilog_generator.h"
+#include "preprocessor.h"
 
 // Global debug flag
 int debug_mode = 0;
@@ -108,9 +109,10 @@ int main(int argc, char* argv[]) {
     }
     
     if (input_filename) {
-        // Read from file
-        source_code = read_file(input_filename);
+        // Preprocess includes and read from file
+        source_code = preprocess_includes(input_filename);
         if (!source_code) {
+            printf("Error: Failed to preprocess file '%s'\n", input_filename);
             return 1;
         }
         printf("Parsing file: %s\n", input_filename);
