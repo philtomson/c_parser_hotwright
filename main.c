@@ -10,6 +10,7 @@
 #include "cfg_utils.h"
 #include "hw_analyzer.h"
 #include "cfg_to_microcode.h"
+#include "ast_to_microcode.h"
 #include "verilog_generator.h"
 #include "preprocessor.h"
 
@@ -75,6 +76,15 @@ int main(int argc, char* argv[]) {
     bool generate_testbench = false;
     bool generate_all_hdl = false;
     
+    // Microcode generation modes
+    typedef enum {
+        MICROCODE_NONE,     // No microcode generation
+        MICROCODE_SSA,      // SSA-based (current default)
+        MICROCODE_COMPACT   // Statement-based (hotstate compatible)
+    } MicrocodeMode;
+    
+    MicrocodeMode microcode_mode = MICROCODE_NONE;
+    
     // Parse command line arguments
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--dot") == 0) {
@@ -85,6 +95,13 @@ int main(int argc, char* argv[]) {
             analyze_hardware = true;
         } else if (strcmp(argv[i], "--microcode") == 0) {
             generate_microcode = true;
+            microcode_mode = MICROCODE_SSA; // Default to SSA mode for backward compatibility
+        } else if (strcmp(argv[i], "--microcode-ssa") == 0) {
+            generate_microcode = true;
+            microcode_mode = MICROCODE_SSA;
+        } else if (strcmp(argv[i], "--microcode-compact") == 0) {
+            generate_microcode = true;
+            microcode_mode = MICROCODE_COMPACT;
         } else if (strcmp(argv[i], "--verilog") == 0) {
             generate_verilog = true;
         } else if (strcmp(argv[i], "--testbench") == 0) {
@@ -96,14 +113,17 @@ int main(int argc, char* argv[]) {
             input_filename = argv[i];
         } else {
             printf("Unknown option: %s\n", argv[i]);
-            printf("Usage: %s [--dot] [--debug] [--hardware] [--microcode] [--verilog] [--testbench] [--all-hdl] <filename.c>\n", argv[0]);
-            printf("  --dot        Generate a DOT file for CFG visualization\n");
-            printf("  --debug      Enable debug output messages\n");
-            printf("  --hardware   Analyze hardware constructs (state/input variables)\n");
-            printf("  --microcode  Generate hotstate-compatible microcode\n");
-            printf("  --verilog    Generate Verilog HDL module\n");
-            printf("  --testbench  Generate Verilog testbench\n");
-            printf("  --all-hdl    Generate all HDL files (module, testbench, stimulus, makefile)\n");
+            printf("Usage: %s [options] <filename.c>\n", argv[0]);
+            printf("Options:\n");
+            printf("  --dot                Generate a DOT file for CFG visualization\n");
+            printf("  --debug              Enable debug output messages\n");
+            printf("  --hardware           Analyze hardware constructs (state/input variables)\n");
+            printf("  --microcode          Generate SSA-based microcode (default mode)\n");
+            printf("  --microcode-ssa      Generate SSA-based microcode (verbose, for analysis)\n");
+            printf("  --microcode-compact  Generate compact microcode (hotstate compatible)\n");
+            printf("  --verilog            Generate Verilog HDL module\n");
+            printf("  --testbench          Generate Verilog testbench\n");
+            printf("  --all-hdl            Generate all HDL files (module, testbench, stimulus, makefile)\n");
             return 1;
         }
     }
@@ -119,14 +139,17 @@ int main(int argc, char* argv[]) {
     } else {
         // Use default test code
         printf("No file specified. Using default test code.\n");
-        printf("Usage: %s [--dot] [--debug] [--hardware] [--microcode] [--verilog] [--testbench] [--all-hdl] <filename.c>\n", argv[0]);
-        printf("  --dot        Generate a DOT file for CFG visualization\n");
-        printf("  --debug      Enable debug output messages\n");
-        printf("  --hardware   Analyze hardware constructs (state/input variables)\n");
-        printf("  --microcode  Generate hotstate-compatible microcode\n");
-        printf("  --verilog    Generate Verilog HDL module\n");
-        printf("  --testbench  Generate Verilog testbench\n");
-        printf("  --all-hdl    Generate all HDL files (module, testbench, stimulus, makefile)\n\n");
+        printf("Usage: %s [options] <filename.c>\n", argv[0]);
+        printf("Options:\n");
+        printf("  --dot                Generate a DOT file for CFG visualization\n");
+        printf("  --debug              Enable debug output messages\n");
+        printf("  --hardware           Analyze hardware constructs (state/input variables)\n");
+        printf("  --microcode          Generate SSA-based microcode (default mode)\n");
+        printf("  --microcode-ssa      Generate SSA-based microcode (verbose, for analysis)\n");
+        printf("  --microcode-compact  Generate compact microcode (hotstate compatible)\n");
+        printf("  --verilog            Generate Verilog HDL module\n");
+        printf("  --testbench          Generate Verilog testbench\n");
+        printf("  --all-hdl            Generate all HDL files (module, testbench, stimulus, makefile)\n\n");
         
         const char* default_code =
         "int main() {\n"
@@ -216,38 +239,65 @@ int main(int argc, char* argv[]) {
         
         // 6. Microcode Generation if requested
         if (generate_microcode) {
-            printf("\n--- Generating Hotstate Microcode ---\n");
-            
             // First analyze hardware constructs
             HardwareContext* hw_ctx = analyze_hardware_constructs(ast_root);
             if (!hw_ctx) {
                 printf("Error: Failed to analyze hardware constructs\n");
             } else {
-                // Build CFG if not already done
-                CFG* cfg = build_cfg_from_ast(ast_root);
-                if (!cfg) {
-                    printf("Error: Failed to build CFG from AST\n");
-                } else {
-                    // Generate microcode
-                    HotstateMicrocode* microcode = cfg_to_hotstate_microcode(cfg, hw_ctx);
-                    if (microcode) {
-                        // Print microcode table
-                        print_hotstate_microcode_table(microcode, stdout);
-                        
-                        // Print analysis
-                        print_microcode_analysis(microcode, stdout);
-                        
-                        // Generate memory files if input filename provided
-                        if (input_filename) {
-                            generate_all_output_files(microcode, input_filename);
+                switch (microcode_mode) {
+                    case MICROCODE_SSA:
+                        printf("\n--- Generating SSA-Based Microcode ---\n");
+                        {
+                            // Build CFG for SSA-based generation
+                            CFG* cfg = build_cfg_from_ast(ast_root);
+                            if (!cfg) {
+                                printf("Error: Failed to build CFG from AST\n");
+                            } else {
+                                // Generate SSA-based microcode
+                                HotstateMicrocode* microcode = cfg_to_hotstate_microcode(cfg, hw_ctx);
+                                if (microcode) {
+                                    // Print microcode table
+                                    print_hotstate_microcode_table(microcode, stdout);
+                                    
+                                    // Print analysis
+                                    print_microcode_analysis(microcode, stdout);
+                                    
+                                    // Generate memory files if input filename provided
+                                    if (input_filename) {
+                                        generate_all_output_files(microcode, input_filename);
+                                    }
+                                    
+                                    free_hotstate_microcode(microcode);
+                                } else {
+                                    printf("Error: Failed to generate SSA-based microcode\n");
+                                }
+                                
+                                free_cfg(cfg);
+                            }
                         }
+                        break;
                         
-                        free_hotstate_microcode(microcode);
-                    } else {
-                        printf("Error: Failed to generate microcode\n");
-                    }
-                    
-                    free_cfg(cfg);
+                    case MICROCODE_COMPACT:
+                        printf("\n--- Generating Compact Microcode (Hotstate Compatible) ---\n");
+                        {
+                            CompactMicrocode* compact_mc = ast_to_compact_microcode(ast_root, hw_ctx);
+                            if (compact_mc) {
+                                // Print compact microcode table
+                                print_compact_microcode_table(compact_mc, stdout);
+                                
+                                // Print analysis
+                                print_compact_microcode_analysis(compact_mc, stdout);
+                                
+                                free_compact_microcode(compact_mc);
+                            } else {
+                                printf("Error: Failed to generate compact microcode\n");
+                            }
+                        }
+                        break;
+                        
+                    default:
+                        printf("Error: Invalid microcode generation mode\n");
+                        break;
                 }
                 
                 free_hardware_context(hw_ctx);

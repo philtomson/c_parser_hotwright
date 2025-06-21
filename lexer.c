@@ -116,6 +116,7 @@ static Token identifier_or_keyword(Lexer* lexer) {
     // Keyword check
     if (strcmp(value, "int") == 0) { free(value); return make_token(TOKEN_INT, "int", 3, lexer->line, start_column); }
     if (strcmp(value, "bool") == 0) { free(value); return make_token(TOKEN_BOOL, "bool", 4, lexer->line, start_column); }
+    if (strcmp(value, "void") == 0) { free(value); return make_token(TOKEN_VOID, "void", 4, lexer->line, start_column); }
     if (strcmp(value, "_BitInt") == 0) { free(value); return make_token(TOKEN_BITINT, "_BitInt", 7, lexer->line, start_column); }
     if (strcmp(value, "true") == 0) { free(value); return make_token(TOKEN_TRUE, "true", 4, lexer->line, start_column); }
     if (strcmp(value, "false") == 0) { free(value); return make_token(TOKEN_FALSE, "false", 5, lexer->line, start_column); }
@@ -277,7 +278,7 @@ Token lexer_next_token(Lexer* lexer) {
 // For printing/debugging
 const char* token_type_to_string(TokenType type) {
     switch(type) {
-        case TOKEN_INT: return "INT"; case TOKEN_BOOL: return "BOOL"; case TOKEN_BITINT: return "BITINT"; case TOKEN_TRUE: return "TRUE"; case TOKEN_FALSE: return "FALSE";
+        case TOKEN_INT: return "INT"; case TOKEN_BOOL: return "BOOL"; case TOKEN_VOID: return "VOID"; case TOKEN_BITINT: return "BITINT"; case TOKEN_TRUE: return "TRUE"; case TOKEN_FALSE: return "FALSE";
         case TOKEN_IF: return "IF"; case TOKEN_ELSE: return "ELSE";
         case TOKEN_WHILE: return "WHILE"; case TOKEN_FOR: return "FOR"; case TOKEN_RETURN: return "RETURN"; case TOKEN_BREAK: return "BREAK";
         case TOKEN_SWITCH: return "SWITCH"; case TOKEN_CASE: return "CASE"; case TOKEN_DEFAULT: return "DEFAULT";

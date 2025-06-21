@@ -3,7 +3,7 @@ CFLAGS = -Wall -Wextra -g -std=c99
 LDFLAGS = -lm
 
 # Source files
-SRCS = lexer.c parser.c ast.c cfg.c cfg_builder.c cfg_utils.c hw_analyzer.c cfg_to_microcode.c microcode_output.c verilog_generator.c preprocessor.c
+SRCS = lexer.c parser.c ast.c cfg.c cfg_builder.c cfg_utils.c hw_analyzer.c cfg_to_microcode.c ast_to_microcode.c microcode_output.c verilog_generator.c preprocessor.c
 OBJS = $(SRCS:.c=.o)
 
 # Test programs

@@ -21,11 +21,18 @@ static Node* parse_expression_statement(Parser* p);
 
 // Expression Parsers (for operator precedence)
 static Node* parse_expression(Parser* p);
+static Node* parse_comma_expression(Parser* p);
 static Node* parse_assignment(Parser* p);
+static Node* parse_logical_or(Parser* p);
+static Node* parse_logical_and(Parser* p);
+static Node* parse_bitwise_or(Parser* p);
+static Node* parse_bitwise_xor(Parser* p);
+static Node* parse_bitwise_and(Parser* p);
 static Node* parse_equality(Parser* p);
 static Node* parse_relational(Parser* p);
 static Node* parse_additive(Parser* p);
 static Node* parse_multiplicative(Parser* p);
+static Node* parse_unary(Parser* p);
 static Node* parse_postfix(Parser* p);
 static Node* parse_primary(Parser* p);
 static Node* parse_initializer_list(Parser* p);
@@ -97,15 +104,26 @@ static Token expect(Parser* p, TokenType type, const char* msg) {
 
 
 static Node* parse_multiplicative(Parser* p) {
-    Node* node = parse_postfix(p);
+    Node* node = parse_unary(p);
     while (current_token(p).type == TOKEN_STAR || current_token(p).type == TOKEN_SLASH) {
         // Get the operator type BEFORE advancing.
         TokenType op = current_token(p).type;
         advance(p); // Manually advance instead of using match()
-        Node* right = parse_postfix(p);
+        Node* right = parse_unary(p);
         node = create_binary_op_node(op, node, right);
     }
     return node;
+}
+
+static Node* parse_unary(Parser* p) {
+    if (current_token(p).type == TOKEN_NOT) {
+        TokenType op = current_token(p).type;
+        advance(p);
+        Node* operand = parse_unary(p); // Right-associative
+        return create_unary_op_node(op, operand);
+    }
+    
+    return parse_postfix(p);
 }
 
 static Node* parse_postfix(Parser* p) {
@@ -252,11 +270,11 @@ static Node* parse_equality(Parser* p) {
 
 
 static Node* parse_logical_and(Parser* p) {
-    Node* node = parse_equality(p);
+    Node* node = parse_bitwise_or(p);
     while (current_token(p).type == TOKEN_LOGICAL_AND) {
         TokenType op = current_token(p).type;
         advance(p);
-        Node* right = parse_equality(p);
+        Node* right = parse_bitwise_or(p);
         node = create_binary_op_node(op, node, right);
     }
     return node;
@@ -273,8 +291,48 @@ static Node* parse_logical_or(Parser* p) {
     return node;
 }
 
+static Node* parse_bitwise_or(Parser* p) {
+    Node* node = parse_bitwise_xor(p);
+    while (current_token(p).type == TOKEN_OR) {
+        TokenType op = current_token(p).type;
+        advance(p);
+        Node* right = parse_bitwise_xor(p);
+        node = create_binary_op_node(op, node, right);
+    }
+    return node;
+}
+
+static Node* parse_bitwise_xor(Parser* p) {
+    // XOR not implemented yet, skip to bitwise AND
+    return parse_bitwise_and(p);
+}
+
+static Node* parse_bitwise_and(Parser* p) {
+    Node* node = parse_equality(p);
+    while (current_token(p).type == TOKEN_AND) {
+        TokenType op = current_token(p).type;
+        advance(p);
+        Node* right = parse_equality(p);
+        node = create_binary_op_node(op, node, right);
+    }
+    return node;
+}
+
 static Node* parse_expression(Parser* p) {
-    return parse_assignment(p);
+    return parse_comma_expression(p);
+}
+
+static Node* parse_comma_expression(Parser* p) {
+    Node* left = parse_assignment(p);
+    
+    while (match(p, TOKEN_COMMA)) {
+        Node* right = parse_assignment(p);
+        // For comma expressions, we evaluate left then right, returning right
+        // We'll create a binary op node to represent this
+        left = create_binary_op_node(TOKEN_COMMA, left, right);
+    }
+    
+    return left;
 }
 
 static Node* parse_assignment(Parser* p) {
@@ -555,7 +613,15 @@ static Node* parse_block_statement(Parser* p) {
 }
 
 static Node* parse_function_definition(Parser* p) {
-    expect(p, TOKEN_INT, "Expected 'int' return type");
+    // Accept both int and void return types
+    if (current_token(p).type == TOKEN_INT) {
+        advance(p);
+    } else if (current_token(p).type == TOKEN_VOID) {
+        advance(p);
+    } else {
+        parser_error_at_token(p, "Expected 'int' or 'void' return type");
+        return NULL;
+    }
     Token name_tok = expect(p, TOKEN_IDENTIFIER, "Expected function name");
     expect(p, TOKEN_LPAREN, "Expected '(' after function name");
     
@@ -601,14 +667,14 @@ Node* parse(Parser* parser) {
     ProgramNode* program = (ProgramNode*)create_program_node();
     while (current_token(parser).type != TOKEN_EOF) {
         // Check if this is a function definition or global variable declaration
-        if (current_token(parser).type == TOKEN_INT || current_token(parser).type == TOKEN_BOOL || current_token(parser).type == TOKEN_BITINT) {
+        if (current_token(parser).type == TOKEN_INT || current_token(parser).type == TOKEN_BOOL || current_token(parser).type == TOKEN_VOID || current_token(parser).type == TOKEN_BITINT) {
             
             // Look ahead to see if this is a function (has parentheses) or variable
             Parser temp_parser = *parser;
             advance(&temp_parser); // skip type
             
             // For _BitInt, we need to skip the (n) part
-            if (parser->tokens[parser->pos].type == TOKEN_BITINT) {
+            if (current_token(parser).type == TOKEN_BITINT) {
                 if (current_token(&temp_parser).type == TOKEN_LPAREN) {
                     advance(&temp_parser); // skip '('
                     advance(&temp_parser); // skip number

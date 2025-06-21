@@ -106,13 +106,14 @@ Node* create_binary_op_node(TokenType op, Node* left, Node* right) {
     node->left = left;
     node->right = right;
     return (Node*)node;
+}
+
 Node* create_unary_op_node(TokenType op, Node* operand) {
     UnaryOpNode* node = malloc(sizeof(UnaryOpNode));
     node->base.type = NODE_UNARY_OP;
     node->op = op;
     node->operand = operand;
     return (Node*)node;
-}
 }
 
 Node* create_assignment_node(Node* identifier, Node* value) {
