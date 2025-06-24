@@ -32,8 +32,15 @@ typedef enum {
     SSA_CALL,          // Function call
     SSA_RETURN,        // Return statement
     SSA_BRANCH,        // Conditional branch
-    SSA_JUMP           // Unconditional jump
+    SSA_JUMP,          // Unconditional jump
+    SSA_SWITCH         // Switch statement (hardware jump table)
 } SSAInstructionType;
+
+// Switch case mapping structure
+typedef struct {
+    int case_value;
+    BasicBlock* target_block;
+} SwitchCase;
 
 // SSA value types
 typedef struct SSAValue {
@@ -92,6 +99,13 @@ typedef struct SSAInstruction {
         struct {
             SSAValue* value;
         } return_data;
+        struct {
+            SSAValue* switch_expr;     // Switch expression
+            int switch_num;            // Switch identifier (like hotstate)
+            SwitchCase* cases;         // Case value -> block mappings
+            int case_count;            // Number of cases
+            BasicBlock* default_target; // Default case block
+        } switch_data;
     } data;
 } SSAInstruction;
 
@@ -171,6 +185,7 @@ SSAInstruction* create_ssa_call(SSAValue* dest, const char* func_name, SSAValue*
 SSAInstruction* create_ssa_return(SSAValue* value);
 SSAInstruction* create_ssa_branch(SSAValue* condition, BasicBlock* true_target, BasicBlock* false_target);
 SSAInstruction* create_ssa_jump(BasicBlock* target);
+SSAInstruction* create_ssa_switch(SSAValue* expr, SwitchCase* cases, int case_count, BasicBlock* default_target);
 void free_ssa_instruction(SSAInstruction* inst);
 
 // --- Phi Node Functions ---

@@ -13,6 +13,7 @@ CFGBuilderContext* create_builder_context(CFG* cfg) {
     ctx->cfg = cfg;
     ctx->current_block = NULL;
     ctx->loop_context = NULL;
+    ctx->switch_context = NULL;
     ctx->var_versions = NULL;
     ctx->var_count = 0;
     ctx->var_capacity = 0;
@@ -36,6 +37,13 @@ void free_builder_context(CFGBuilderContext* ctx) {
         struct LoopContext* next = ctx->loop_context->parent;
         free(ctx->loop_context);
         ctx->loop_context = next;
+    }
+    
+    // Free switch context stack
+    while (ctx->switch_context) {
+        struct SwitchContext* next = ctx->switch_context->parent;
+        free(ctx->switch_context);
+        ctx->switch_context = next;
     }
     
     free(ctx);
@@ -208,10 +216,14 @@ BasicBlock* process_statement(CFGBuilderContext* ctx, Node* stmt, BasicBlock* cu
             return process_while_loop(ctx, (WhileNode*)stmt, current);
         case NODE_FOR:
             return process_for_loop(ctx, (ForNode*)stmt, current);
+        case NODE_SWITCH:
+            return process_switch_statement(ctx, (SwitchNode*)stmt, current);
         case NODE_RETURN:
             return process_return_statement(ctx, (ReturnNode*)stmt, current);
         case NODE_BREAK:
             return process_break_statement(ctx, (BreakNode*)stmt, current);
+        case NODE_CONTINUE:
+            return process_continue_statement(ctx, (ContinueNode*)stmt, current);
         default:
             // Unsupported statement type
             return current;
@@ -406,13 +418,157 @@ BasicBlock* process_return_statement(CFGBuilderContext* ctx, ReturnNode* ret_stm
 }
 
 BasicBlock* process_break_statement(CFGBuilderContext* ctx, BreakNode* break_stmt, BasicBlock* current) {
-    if (ctx->loop_context) {
+    // Check if we're in a switch context first (inner-most context)
+    if (ctx->switch_context) {
+        // Jump to switch exit
+        add_instruction(current->instructions, create_ssa_jump(ctx->switch_context->exit_block));
+        add_edge(current, ctx->switch_context->exit_block);
+    } else if (ctx->loop_context) {
         // Jump to loop exit
         add_instruction(current->instructions, create_ssa_jump(ctx->loop_context->exit));
         add_edge(current, ctx->loop_context->exit);
     }
     
     return NULL; // No successor block after break
+}
+
+BasicBlock* process_continue_statement(CFGBuilderContext* ctx, ContinueNode* continue_stmt, BasicBlock* current) {
+    // Continue statements only make sense in loop contexts
+    if (ctx->loop_context) {
+        // Jump to loop header (which contains the loop condition)
+        add_instruction(current->instructions, create_ssa_jump(ctx->loop_context->header));
+        add_edge(current, ctx->loop_context->header);
+    }
+    // Note: continue in switch context is not valid C, but if it happens, we ignore it
+    
+    return NULL; // No successor block after continue
+}
+
+BasicBlock* process_switch_statement(CFGBuilderContext* ctx, SwitchNode* switch_stmt, BasicBlock* current) {
+    // Evaluate switch expression
+    SSAValue* switch_expr = process_expression(ctx, switch_stmt->expression, current);
+    
+    // Create blocks
+    BasicBlock* exit_block = create_basic_block(ctx->cfg, "switch.exit");
+    BasicBlock* default_block = NULL;
+    
+    // Count regular cases (non-default) and find default case
+    int case_count = 0;
+    for (int i = 0; i < switch_stmt->cases->count; i++) {
+        CaseNode* case_node = (CaseNode*)switch_stmt->cases->items[i];
+        if (case_node->value == NULL) {
+            // This is a default case
+            if (!default_block) {
+                default_block = create_basic_block(ctx->cfg, "switch.default");
+            }
+        } else {
+            // This is a regular case
+            case_count++;
+        }
+    }
+    
+    // If no default case, create one that jumps to exit
+    if (!default_block) {
+        default_block = create_basic_block(ctx->cfg, "switch.default");
+        add_instruction(default_block->instructions, create_ssa_jump(exit_block));
+        add_edge(default_block, exit_block);
+    }
+    
+    // Allocate case mappings
+    SwitchCase* cases = NULL;
+    if (case_count > 0) {
+        cases = (SwitchCase*)malloc(case_count * sizeof(SwitchCase));
+    }
+    
+    // Push switch context for break statements
+    struct SwitchContext* switch_ctx = (struct SwitchContext*)malloc(sizeof(struct SwitchContext));
+    switch_ctx->exit_block = exit_block;
+    switch_ctx->parent = ctx->switch_context;
+    ctx->switch_context = switch_ctx;
+    
+    // First pass: Create all case blocks and build case mappings
+    BasicBlock** case_blocks = (BasicBlock**)malloc(switch_stmt->cases->count * sizeof(BasicBlock*));
+    int case_index = 0;
+    int default_index = -1;
+    
+    for (int i = 0; i < switch_stmt->cases->count; i++) {
+        CaseNode* case_node = (CaseNode*)switch_stmt->cases->items[i];
+        
+        if (case_node->value == NULL) {
+            // Default case
+            case_blocks[i] = default_block;
+            default_index = i;
+        } else {
+            // Regular case
+            char block_name[64];
+            snprintf(block_name, sizeof(block_name), "switch.case.%d", case_index);
+            case_blocks[i] = create_basic_block(ctx->cfg, block_name);
+            
+            // Add to case mappings
+            cases[case_index].case_value = atoi(((NumberLiteralNode*)case_node->value)->value);
+            cases[case_index].target_block = case_blocks[i];
+            case_index++;
+        }
+    }
+    
+    // Second pass: Process case bodies with fall-through support
+    BasicBlock* last_block = NULL;
+    
+    for (int i = 0; i < switch_stmt->cases->count; i++) {
+        CaseNode* case_node = (CaseNode*)switch_stmt->cases->items[i];
+        BasicBlock* case_block = case_blocks[i];
+        BasicBlock* current_block = case_block;
+        
+        // Process case body
+        if (case_node->body && case_node->body->count > 0) {
+            for (int j = 0; j < case_node->body->count; j++) {
+                current_block = process_statement(ctx, case_node->body->items[j], current_block);
+                if (!current_block) break; // Hit a break/return
+            }
+        }
+        
+        // Handle fall-through: if current_block is not NULL, it means no break/return
+        if (current_block) {
+            // Find next case to fall through to
+            BasicBlock* next_case = NULL;
+            for (int k = i + 1; k < switch_stmt->cases->count; k++) {
+                next_case = case_blocks[k];
+                break; // Fall through to the very next case
+            }
+            
+            if (next_case) {
+                // Fall through to next case
+                add_instruction(current_block->instructions, create_ssa_jump(next_case));
+                add_edge(current_block, next_case);
+            } else {
+                // No more cases, fall through to exit
+                add_instruction(current_block->instructions, create_ssa_jump(exit_block));
+                add_edge(current_block, exit_block);
+            }
+        }
+        
+        last_block = current_block;
+    }
+    
+    // Clean up
+    free(case_blocks);
+    
+    // Create switch instruction
+    SSAInstruction* switch_inst = create_ssa_switch(switch_expr, cases, case_count, default_block);
+    add_instruction(current->instructions, switch_inst);
+    
+    // Add edges from current block to all case blocks and default
+    for (int i = 0; i < case_count; i++) {
+        add_edge(current, cases[i].target_block);
+    }
+    add_edge(current, default_block);
+    
+    
+    // Pop switch context
+    ctx->switch_context = switch_ctx->parent;
+    free(switch_ctx);
+    
+    return exit_block;
 }
 
 // --- Expression Processing ---

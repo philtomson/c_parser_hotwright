@@ -11,6 +11,7 @@
 #include "hw_analyzer.h"
 #include "cfg_to_microcode.h"
 #include "ast_to_microcode.h"
+#include "ssa_optimizer.h"
 #include "verilog_generator.h"
 #include "preprocessor.h"
 
@@ -75,12 +76,13 @@ int main(int argc, char* argv[]) {
     bool generate_verilog = false;
     bool generate_testbench = false;
     bool generate_all_hdl = false;
+    bool optimize_ssa = false;
     
     // Microcode generation modes
     typedef enum {
-        MICROCODE_NONE,     // No microcode generation
-        MICROCODE_SSA,      // SSA-based (current default)
-        MICROCODE_COMPACT   // Statement-based (hotstate compatible)
+        MICROCODE_NONE,        // No microcode generation
+        MICROCODE_SSA,         // SSA-based (current default)
+        MICROCODE_COMPACT      // Statement-based (hotstate compatible)
     } MicrocodeMode;
     
     MicrocodeMode microcode_mode = MICROCODE_NONE;
@@ -99,7 +101,9 @@ int main(int argc, char* argv[]) {
         } else if (strcmp(argv[i], "--microcode-ssa") == 0) {
             generate_microcode = true;
             microcode_mode = MICROCODE_SSA;
-        } else if (strcmp(argv[i], "--microcode-compact") == 0) {
+        } else if (strcmp(argv[i], "--opt") == 0) {
+            optimize_ssa = true;
+        } else if (strcmp(argv[i], "--microcode-hs") == 0) {
             generate_microcode = true;
             microcode_mode = MICROCODE_COMPACT;
         } else if (strcmp(argv[i], "--verilog") == 0) {
@@ -120,7 +124,8 @@ int main(int argc, char* argv[]) {
             printf("  --hardware           Analyze hardware constructs (state/input variables)\n");
             printf("  --microcode          Generate SSA-based microcode (default mode)\n");
             printf("  --microcode-ssa      Generate SSA-based microcode (verbose, for analysis)\n");
-            printf("  --microcode-compact  Generate compact microcode (hotstate compatible)\n");
+            printf("  --microcode-hs       Generate hotstate-compatible microcode\n");
+            printf("  --opt                Apply SSA optimizations (constant/copy propagation)\n");
             printf("  --verilog            Generate Verilog HDL module\n");
             printf("  --testbench          Generate Verilog testbench\n");
             printf("  --all-hdl            Generate all HDL files (module, testbench, stimulus, makefile)\n");
@@ -146,7 +151,8 @@ int main(int argc, char* argv[]) {
         printf("  --hardware           Analyze hardware constructs (state/input variables)\n");
         printf("  --microcode          Generate SSA-based microcode (default mode)\n");
         printf("  --microcode-ssa      Generate SSA-based microcode (verbose, for analysis)\n");
-        printf("  --microcode-compact  Generate compact microcode (hotstate compatible)\n");
+        printf("  --microcode-hs       Generate hotstate-compatible microcode\n");
+        printf("  --opt                Apply SSA optimizations (constant/copy propagation)\n");
         printf("  --verilog            Generate Verilog HDL module\n");
         printf("  --testbench          Generate Verilog testbench\n");
         printf("  --all-hdl            Generate all HDL files (module, testbench, stimulus, makefile)\n\n");
@@ -246,13 +252,22 @@ int main(int argc, char* argv[]) {
             } else {
                 switch (microcode_mode) {
                     case MICROCODE_SSA:
-                        printf("\n--- Generating SSA-Based Microcode ---\n");
+                        if (optimize_ssa) {
+                            printf("\n--- Generating Optimized SSA-Based Microcode ---\n");
+                        } else {
+                            printf("\n--- Generating SSA-Based Microcode ---\n");
+                        }
                         {
                             // Build CFG for SSA-based generation
                             CFG* cfg = build_cfg_from_ast(ast_root);
                             if (!cfg) {
                                 printf("Error: Failed to build CFG from AST\n");
                             } else {
+                                // Apply SSA optimizations if requested
+                                if (optimize_ssa) {
+                                    cfg = optimize_ssa_cfg(cfg, hw_ctx);
+                                }
+                                
                                 // Generate SSA-based microcode
                                 HotstateMicrocode* microcode = cfg_to_hotstate_microcode(cfg, hw_ctx);
                                 if (microcode) {
@@ -269,7 +284,11 @@ int main(int argc, char* argv[]) {
                                     
                                     free_hotstate_microcode(microcode);
                                 } else {
-                                    printf("Error: Failed to generate SSA-based microcode\n");
+                                    if (optimize_ssa) {
+                                        printf("Error: Failed to generate optimized SSA-based microcode\n");
+                                    } else {
+                                        printf("Error: Failed to generate SSA-based microcode\n");
+                                    }
                                 }
                                 
                                 free_cfg(cfg);
@@ -278,7 +297,7 @@ int main(int argc, char* argv[]) {
                         break;
                         
                     case MICROCODE_COMPACT:
-                        printf("\n--- Generating Compact Microcode (Hotstate Compatible) ---\n");
+                        printf("\n--- Generating Hotstate-Compatible Microcode ---\n");
                         {
                             CompactMicrocode* compact_mc = ast_to_compact_microcode(ast_root, hw_ctx);
                             if (compact_mc) {

@@ -85,6 +85,7 @@ void print_variable_mappings(HotstateMicrocode* mc, FILE* output) {
 
 // --- Memory File Generation ---
 
+/*
 void generate_smdata_mem_file(HotstateMicrocode* mc, const char* filename) {
     FILE* file = fopen(filename, "w");
     if (!file) {
@@ -100,7 +101,36 @@ void generate_smdata_mem_file(HotstateMicrocode* mc, const char* filename) {
     fclose(file);
     printf("Generated microcode memory file: %s\n", filename);
 }
+*/
+void generate_smdata_mem_file(HotstateMicrocode* mc, const char* filename) {
+    FILE* file = fopen(filename, "w");
+    if (!file) {
+        fprintf(stderr, "Error: Cannot create file '%s'\n", filename);
+        return;
+    }
+    
+    // Calculate hex width based on input_count
+    // Each input is 1-bit wide, so hex digits = (input_count + 3) / 4
+    int hex_width = (mc->hw_ctx->input_count + 3) / 4;
+    
+    // Ensure minimum width of 1
+    if (hex_width < 1) hex_width = 1;
+    
+    // Create format string dynamically
+    char format_str[16];
+    snprintf(format_str, sizeof(format_str), "%%0%dx\n", hex_width);
+    
+    // Write each instruction with variable width (no masking needed)
+    for (int i = 0; i < mc->instruction_count; i++) {
+        fprintf(file, format_str, mc->instructions[i].instruction_word);
+    }
+    
+    fclose(file);
+    printf("Generated microcode memory file: %s (width: %d hex digits)\n", filename, hex_width);
+}
 
+//TODO: this needs to be filled in with actual vardata
+//TODO: actuall vadata needs to be created somewhere
 void generate_vardata_mem_file(HotstateMicrocode* mc, const char* filename) {
     FILE* file = fopen(filename, "w");
     if (!file) {

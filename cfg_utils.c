@@ -120,6 +120,18 @@ void cfg_to_dot_file(CFG* cfg, FILE* file) {
                     fprintf(file, "goto bb%d\\n", inst->data.jump_data.target->id);
                     break;
                 }
+                case SSA_SWITCH: {
+                    char* expr_str = ssa_value_to_string(inst->data.switch_data.switch_expr);
+                    fprintf(file, "switch %s {", expr_str);
+                    for (int k = 0; k < inst->data.switch_data.case_count; k++) {
+                        fprintf(file, " %d:bb%d",
+                                inst->data.switch_data.cases[k].case_value,
+                                inst->data.switch_data.cases[k].target_block->id);
+                    }
+                    fprintf(file, " default:bb%d }\\n", inst->data.switch_data.default_target->id);
+                    free(expr_str);
+                    break;
+                }
                 default:
                     fprintf(file, "%s\\n", ssa_instruction_type_to_string(inst->type));
                     break;
@@ -291,6 +303,18 @@ void print_ssa_instruction(SSAInstruction* inst) {
         }
         case SSA_JUMP: {
             printf("goto bb%d", inst->data.jump_data.target->id);
+            break;
+        }
+        case SSA_SWITCH: {
+            char* expr_str = ssa_value_to_string(inst->data.switch_data.switch_expr);
+            printf("switch %s {", expr_str);
+            for (int k = 0; k < inst->data.switch_data.case_count; k++) {
+                printf(" %d:bb%d",
+                       inst->data.switch_data.cases[k].case_value,
+                       inst->data.switch_data.cases[k].target_block->id);
+            }
+            printf(" default:bb%d }", inst->data.switch_data.default_target->id);
+            free(expr_str);
             break;
         }
         case SSA_PHI: {
@@ -484,6 +508,14 @@ void check_terminators(CFG* cfg) {
                            block->id, block->successor_count);
                 }
                 break;
+            case SSA_SWITCH: {
+                int expected_successors = last->data.switch_data.case_count + 1; // cases + default
+                if (block->successor_count != expected_successors) {
+                    printf("Error: Block bb%d with switch has %d successors (expected %d)\n",
+                           block->id, block->successor_count, expected_successors);
+                }
+                break;
+            }
             case SSA_RETURN:
                 if (block->successor_count != 1 || block->successors[0] != cfg->exit) {
                     printf("Error: Block bb%d with return doesn't lead to exit\n", block->id);
@@ -513,6 +545,7 @@ const char* ssa_instruction_type_to_string(SSAInstructionType type) {
         case SSA_RETURN: return "RETURN";
         case SSA_BRANCH: return "BRANCH";
         case SSA_JUMP: return "JUMP";
+        case SSA_SWITCH: return "SWITCH";
         default: return "UNKNOWN";
     }
 }

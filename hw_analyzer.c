@@ -12,6 +12,7 @@ static void resize_state_array(HardwareContext* ctx);
 static void resize_input_array(HardwareContext* ctx);
 static void add_state_variable(HardwareContext* ctx, VarDeclNode* var_decl);
 static void add_input_variable(HardwareContext* ctx, VarDeclNode* var_decl);
+static void add_input_variable_with_array_support(HardwareContext* ctx, VarDeclNode* var_decl);
 static void build_lookup_tables(HardwareContext* ctx);
 static void traverse_ast_for_variables(Node* node, HardwareContext* ctx);
 static bool extract_initial_bool_value(Node* initializer);
@@ -45,8 +46,8 @@ HardwareVarType classify_variable(VarDeclNode* var_decl) {
         return HW_VAR_UNKNOWN;
     }
     
-    // Must be boolean or integer type (for hardware variables)
-    if (var_decl->var_type != TOKEN_BOOL && var_decl->var_type != TOKEN_INT) {
+    // Must be boolean, integer, or char type (for hardware variables)
+    if (var_decl->var_type != TOKEN_BOOL && var_decl->var_type != TOKEN_INT && var_decl->var_type != TOKEN_CHAR) {
         return HW_VAR_UNKNOWN;
     }
     
@@ -65,24 +66,22 @@ HardwareVarType classify_variable(VarDeclNode* var_decl) {
 
 bool is_state_variable(VarDeclNode* var_decl) {
     // State variables:
-    // 1. Must be boolean or integer type
+    // 1. Must be boolean, integer, or char type
     // 2. Must have initialization
-    // 3. Must follow LED naming pattern (for now, until comment support)
-    return (var_decl->var_type == TOKEN_BOOL || var_decl->var_type == TOKEN_INT) &&
+    // 3. Must follow LED naming pattern OR state naming pattern
+    return (var_decl->var_type == TOKEN_BOOL || var_decl->var_type == TOKEN_INT || var_decl->var_type == TOKEN_CHAR) &&
            (var_decl->initializer != NULL) &&
-           is_led_variable(var_decl->var_name);
+           (is_led_variable(var_decl->var_name) || is_state_variable_name(var_decl->var_name));
 }
 
 bool is_input_variable(VarDeclNode* var_decl) {
     // Input variables:
-    // 1. Must be boolean or integer type
-    // 2. Must NOT have initialization
-    // 3. Must follow input naming pattern (a0, a1, etc.)
-    return (var_decl->var_type == TOKEN_BOOL || var_decl->var_type == TOKEN_INT) &&
+    // 1. Must be boolean, integer, or char type
+    // 2. Must NOT have initialization (or be an array)
+    // 3. Must follow input naming pattern (a0, a1, etc.) OR common input patterns
+    return (var_decl->var_type == TOKEN_BOOL || var_decl->var_type == TOKEN_INT || var_decl->var_type == TOKEN_CHAR) &&
            (var_decl->initializer == NULL) &&
-           (strlen(var_decl->var_name) >= 2) &&
-           (var_decl->var_name[0] == 'a') &&
-           isdigit(var_decl->var_name[1]);
+           (is_traditional_input_name(var_decl->var_name) || is_common_input_name(var_decl->var_name));
 }
 
 // --- Hardware Pattern Recognition ---
@@ -96,14 +95,45 @@ bool is_led_variable(const char* var_name) {
     return (strncmp(var_name, "LED", 3) == 0) && isdigit(var_name[3]);
 }
 
-int extract_state_number_from_name(const char* var_name) {
-    // Extract state number from LED variable name
-    // LED0 -> 0, LED1 -> 1, etc.
-    if (!is_led_variable(var_name)) {
-        return -1;
+bool is_state_variable_name(const char* var_name) {
+    // Check for state naming pattern: state0, state1, state2, etc.
+    if (!var_name || strlen(var_name) < 6) {
+        return false;
     }
     
-    return atoi(var_name + 3);  // Skip "LED" prefix
+    return (strncmp(var_name, "state", 5) == 0) && isdigit(var_name[5]);
+}
+
+bool is_traditional_input_name(const char* var_name) {
+    // Check for traditional input naming pattern: a0, a1, etc.
+    if (!var_name || strlen(var_name) < 2) {
+        return false;
+    }
+    
+    return (var_name[0] == 'a') && isdigit(var_name[1]);
+}
+
+bool is_common_input_name(const char* var_name) {
+    // Check for common input naming patterns: case_in, new_case, input, etc.
+    if (!var_name) {
+        return false;
+    }
+    
+    return (strstr(var_name, "case") != NULL) ||
+           (strstr(var_name, "input") != NULL) ||
+           (strstr(var_name, "in") != NULL);
+}
+
+int extract_state_number_from_name(const char* var_name) {
+    // Extract state number from LED or state variable name
+    // LED0 -> 0, LED1 -> 1, state0 -> 0, state1 -> 1, etc.
+    if (is_led_variable(var_name)) {
+        return atoi(var_name + 3);  // Skip "LED" prefix
+    } else if (is_state_variable_name(var_name)) {
+        return atoi(var_name + 5);  // Skip "state" prefix
+    }
+    
+    return -1;
 }
 
 // --- AST Traversal ---
@@ -141,7 +171,7 @@ static void traverse_ast_for_variables(Node* node, HardwareContext* ctx) {
             if (type == HW_VAR_STATE) {
                 add_state_variable(ctx, var_decl);
             } else if (type == HW_VAR_INPUT) {
-                add_input_variable(ctx, var_decl);
+                add_input_variable_with_array_support(ctx, var_decl);
             }
             break;
         }
@@ -221,6 +251,32 @@ static void add_input_variable(HardwareContext* ctx, VarDeclNode* var_decl) {
     input->ast_node = var_decl;
     
     ctx->input_count++;
+}
+
+static void add_input_variable_with_array_support(HardwareContext* ctx, VarDeclNode* var_decl) {
+    // Check if this is an array declaration
+    if (var_decl->array_size > 0) {
+        // Add each array element as a separate input variable
+        for (int i = 0; i < var_decl->array_size; i++) {
+            if (ctx->input_count >= ctx->input_capacity) {
+                resize_input_array(ctx);
+            }
+            
+            InputVariable* input = &ctx->inputs[ctx->input_count];
+            
+            // Create name like "case_in[0]", "case_in[1]", etc.
+            char* element_name = malloc(strlen(var_decl->var_name) + 10);
+            sprintf(element_name, "%s[%d]", var_decl->var_name, i);
+            input->name = element_name;
+            input->input_number = ctx->input_count;
+            input->ast_node = var_decl;
+            
+            ctx->input_count++;
+        }
+    } else {
+        // Single variable, use existing function
+        add_input_variable(ctx, var_decl);
+    }
 }
 
 static bool extract_initial_bool_value(Node* initializer) {

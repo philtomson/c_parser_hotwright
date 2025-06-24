@@ -19,6 +19,7 @@ typedef enum {
     NODE_CASE,
     NODE_RETURN,
     NODE_BREAK,
+    NODE_CONTINUE,
     NODE_BINARY_OP,        // <-- For expressions like a + b
     NODE_UNARY_OP,         // <-- For expressions like !a
     NODE_ASSIGNMENT,       // <-- For expressions like x = 5
@@ -63,7 +64,8 @@ typedef struct {
 
 typedef struct {
     Node base;
-    TokenType var_type;    // TOKEN_INT, TOKEN_BOOL, or TOKEN_BITINT
+    TokenType var_type;    // TOKEN_INT, TOKEN_BOOL, TOKEN_BITINT, or TOKEN_CHAR
+    int is_unsigned;       // 0 for signed, 1 for unsigned (applies to char and int)
     char* var_name;
     int array_size;        // 0 for non-arrays, >0 for arrays
     int bit_width;         // For _BitInt types, 0 for other types
@@ -116,6 +118,10 @@ typedef struct {
 typedef struct {
     Node base; // A simple node, no extra data for break
 } BreakNode;
+
+typedef struct {
+    Node base; // A simple node, no extra data for continue
+} ContinueNode;
 
 typedef struct {
     Node base;
@@ -181,11 +187,12 @@ typedef struct {
 Node* create_program_node();
 Node* create_function_def_node(char* name, NodeList* parameters, Node* body);
 Node* create_block_node();
-Node* create_var_decl_node(TokenType var_type, char* var_name, int array_size, int bit_width, Node* initializer);
+Node* create_var_decl_node(TokenType var_type, int is_unsigned, char* var_name, int array_size, int bit_width, Node* initializer);
 Node* create_expression_statement_node(Node* expression);
 Node* create_switch_node(Node* expression);
 Node* create_case_node(Node* value);
 Node* create_break_node();
+Node* create_continue_node();
 Node* create_binary_op_node(TokenType op, Node* left, Node* right); // <-- MISSING
 Node* create_unary_op_node(TokenType op, Node* operand);
 //Node* create_assignment_node(char* name, Node* value);         // <-- MISSING

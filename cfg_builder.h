@@ -16,6 +16,12 @@ typedef struct CFGBuilderContext {
         struct LoopContext* parent;
     }* loop_context;
     
+    // For tracking switch contexts (for break statements)
+    struct SwitchContext {
+        BasicBlock* exit_block;
+        struct SwitchContext* parent;
+    }* switch_context;
+    
     // For tracking variable versions with proper scoping
     struct VarVersion {
         char* name;
@@ -55,8 +61,10 @@ BasicBlock* process_expression_statement(CFGBuilderContext* ctx, ExpressionState
 BasicBlock* process_if_statement(CFGBuilderContext* ctx, IfNode* if_stmt, BasicBlock* current);
 BasicBlock* process_while_loop(CFGBuilderContext* ctx, WhileNode* while_stmt, BasicBlock* current);
 BasicBlock* process_for_loop(CFGBuilderContext* ctx, ForNode* for_stmt, BasicBlock* current);
+BasicBlock* process_switch_statement(CFGBuilderContext* ctx, SwitchNode* switch_stmt, BasicBlock* current);
 BasicBlock* process_return_statement(CFGBuilderContext* ctx, ReturnNode* ret_stmt, BasicBlock* current);
 BasicBlock* process_break_statement(CFGBuilderContext* ctx, BreakNode* break_stmt, BasicBlock* current);
+BasicBlock* process_continue_statement(CFGBuilderContext* ctx, ContinueNode* continue_stmt, BasicBlock* current);
 
 // Expression processing (returns SSA value)
 SSAValue* process_expression(CFGBuilderContext* ctx, Node* expr, BasicBlock* current);

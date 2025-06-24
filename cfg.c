@@ -361,6 +361,8 @@ void free_ssa_instruction(SSAInstruction* inst) {
     // Free type-specific data
     if (inst->type == SSA_CALL && inst->data.call_data.func_name) {
         free(inst->data.call_data.func_name);
+    } else if (inst->type == SSA_SWITCH && inst->data.switch_data.cases) {
+        free(inst->data.switch_data.cases);
     }
     
     free(inst);
@@ -481,4 +483,26 @@ void free_phi_node_list(PhiNodeList* list) {
     
     free(list->items);
     free(list);
+}
+
+// Global counter for switch identifiers (matching hotstate approach)
+static int next_switch_id = 0;
+
+SSAInstruction* create_ssa_switch(SSAValue* expr, SwitchCase* cases, int case_count, BasicBlock* default_target) {
+    SSAInstruction* inst = (SSAInstruction*)malloc(sizeof(SSAInstruction));
+    if (!inst) return NULL;
+    
+    inst->type = SSA_SWITCH;
+    inst->dest = NULL;
+    inst->operands = (SSAValue**)malloc(sizeof(SSAValue*));
+    inst->operands[0] = expr;
+    inst->operand_count = 1;
+    
+    inst->data.switch_data.switch_expr = expr;
+    inst->data.switch_data.switch_num = next_switch_id++;
+    inst->data.switch_data.cases = cases;
+    inst->data.switch_data.case_count = case_count;
+    inst->data.switch_data.default_target = default_target;
+    
+    return inst;
 }

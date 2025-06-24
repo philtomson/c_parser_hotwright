@@ -58,10 +58,11 @@ Node* create_block_node() {
     return (Node*)node;
 }
 
-Node* create_var_decl_node(TokenType var_type, char* var_name, int array_size, int bit_width, Node* initializer) {
+Node* create_var_decl_node(TokenType var_type, int is_unsigned, char* var_name, int array_size, int bit_width, Node* initializer) {
     VarDeclNode* node = malloc(sizeof(VarDeclNode));
     node->base.type = NODE_VAR_DECL;
     node->var_type = var_type;
+    node->is_unsigned = is_unsigned;
     node->var_name = var_name;
     node->array_size = array_size;
     node->bit_width = bit_width;
@@ -95,6 +96,12 @@ Node* create_case_node(Node* value) {
 Node* create_break_node() {
     BreakNode* node = malloc(sizeof(BreakNode));
     node->base.type = NODE_BREAK;
+    return (Node*)node;
+}
+
+Node* create_continue_node() {
+    ContinueNode* node = malloc(sizeof(ContinueNode));
+    node->base.type = NODE_CONTINUE;
     return (Node*)node;
 }
 
@@ -280,6 +287,10 @@ void free_node(Node* node) {
             break;
         }
         case NODE_BREAK: {
+            // No children to free.
+            break;
+        }
+        case NODE_CONTINUE: {
             // No children to free.
             break;
         }

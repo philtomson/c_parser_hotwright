@@ -377,11 +377,27 @@ static Node* parse_expression_statement(Parser* p) {
 }
 
 static Node* parse_declaration_statement(Parser* p) {
-    // Parse type (int, bool, or _BitInt)
+    // Parse type (int, bool, char, unsigned char, or _BitInt)
     TokenType var_type;
     int bit_width = 0;
+    int is_unsigned = 0;
     
-    if (match(p, TOKEN_INT)) {
+    // Handle unsigned modifier
+    if (match(p, TOKEN_UNSIGNED)) {
+        is_unsigned = 1;
+        // Must be followed by a type that can be unsigned
+        if (match(p, TOKEN_CHAR)) {
+            var_type = TOKEN_CHAR;
+        } else if (match(p, TOKEN_INT)) {
+            var_type = TOKEN_INT;
+        } else {
+            parser_error_at_token(p, "Expected 'char' or 'int' after 'unsigned'");
+            return NULL;
+        }
+    } else if (match(p, TOKEN_CHAR)) {
+        var_type = TOKEN_CHAR;
+        // char defaults to signed
+    } else if (match(p, TOKEN_INT)) {
         var_type = TOKEN_INT;
     } else if (match(p, TOKEN_BOOL)) {
         var_type = TOKEN_BOOL;
@@ -397,7 +413,7 @@ static Node* parse_declaration_statement(Parser* p) {
         }
         expect(p, TOKEN_RPAREN, "Expected ')' after bit width");
     } else {
-        parser_error_at_token(p, "Expected 'int', 'bool', or '_BitInt' for declaration");
+        parser_error_at_token(p, "Expected type in declaration");
         return NULL;
     }
     
@@ -423,7 +439,7 @@ static Node* parse_declaration_statement(Parser* p) {
     }
     
     // Create first variable declaration
-    Node* first_decl = create_var_decl_node(var_type, strdup(id_tok.value), array_size, bit_width, initializer);
+    Node* first_decl = create_var_decl_node(var_type, is_unsigned, strdup(id_tok.value), array_size, bit_width, initializer);
     
     // Check for comma-separated additional variables
     if (current_token(p).type == TOKEN_COMMA) {
@@ -452,7 +468,7 @@ static Node* parse_declaration_statement(Parser* p) {
                 }
             }
             
-            Node* next_decl = create_var_decl_node(var_type, strdup(next_id_tok.value), next_array_size, bit_width, next_initializer);
+            Node* next_decl = create_var_decl_node(var_type, is_unsigned, strdup(next_id_tok.value), next_array_size, bit_width, next_initializer);
             add_node_to_list(block->statements, next_decl);
         }
         
@@ -567,10 +583,15 @@ static Node* parse_for_statement(Parser* p) {
 }
 
 static Node* parse_statement(Parser* p) {
-    // Check for declaration: 'int', 'bool', or '_BitInt' followed by an identifier
-    if ((current_token(p).type == TOKEN_INT || current_token(p).type == TOKEN_BOOL || current_token(p).type == TOKEN_BITINT)) {
+    // Check for declaration: 'int', 'bool', 'char', 'unsigned', or '_BitInt' followed by an identifier
+    if ((current_token(p).type == TOKEN_INT || current_token(p).type == TOKEN_BOOL ||
+         current_token(p).type == TOKEN_CHAR || current_token(p).type == TOKEN_UNSIGNED ||
+         current_token(p).type == TOKEN_BITINT)) {
         // For _BitInt, we need to check if it's followed by (n) and then identifier
         if (current_token(p).type == TOKEN_BITINT) {
+            return parse_declaration_statement(p);
+        } else if (current_token(p).type == TOKEN_UNSIGNED) {
+            // unsigned must be followed by a type (char or int) and then identifier
             return parse_declaration_statement(p);
         } else if (peek_token(p).type == TOKEN_IDENTIFIER) {
             return parse_declaration_statement(p);
@@ -586,6 +607,10 @@ static Node* parse_statement(Parser* p) {
             advance(p);
             expect(p, TOKEN_SEMICOLON, "Expected ';' after break");
             return create_break_node();
+        case TOKEN_CONTINUE:
+            advance(p);
+            expect(p, TOKEN_SEMICOLON, "Expected ';' after continue");
+            return create_continue_node();
         case TOKEN_RETURN:
             advance(p);
             Node* return_value = NULL;
@@ -613,13 +638,18 @@ static Node* parse_block_statement(Parser* p) {
 }
 
 static Node* parse_function_definition(Parser* p) {
-    // Accept both int and void return types
+    // Accept int, char, unsigned char, and void return types
     if (current_token(p).type == TOKEN_INT) {
         advance(p);
+    } else if (current_token(p).type == TOKEN_CHAR) {
+        advance(p);
+    } else if (current_token(p).type == TOKEN_UNSIGNED) {
+        advance(p);
+        expect(p, TOKEN_CHAR, "Expected 'char' after 'unsigned'");
     } else if (current_token(p).type == TOKEN_VOID) {
         advance(p);
     } else {
-        parser_error_at_token(p, "Expected 'int' or 'void' return type");
+        parser_error_at_token(p, "Expected return type (int, char, unsigned char, or void)");
         return NULL;
     }
     Token name_tok = expect(p, TOKEN_IDENTIFIER, "Expected function name");
@@ -630,13 +660,33 @@ static Node* parse_function_definition(Parser* p) {
     // Parse parameters
     if (current_token(p).type != TOKEN_RPAREN) {
         // First parameter
-        expect(p, TOKEN_INT, "Expected 'int' parameter type");
+        if (current_token(p).type == TOKEN_INT) {
+            advance(p);
+        } else if (current_token(p).type == TOKEN_CHAR) {
+            advance(p);
+        } else if (current_token(p).type == TOKEN_UNSIGNED) {
+            advance(p);
+            expect(p, TOKEN_CHAR, "Expected 'char' after 'unsigned'");
+        } else {
+            parser_error_at_token(p, "Expected parameter type (int, char, or unsigned char)");
+            return NULL;
+        }
         Token param_tok = expect(p, TOKEN_IDENTIFIER, "Expected parameter name");
         add_node_to_list(parameters, create_identifier_node(strdup(param_tok.value)));
         
         // Additional parameters
         while (match(p, TOKEN_COMMA)) {
-            expect(p, TOKEN_INT, "Expected 'int' parameter type");
+            if (current_token(p).type == TOKEN_INT) {
+                advance(p);
+            } else if (current_token(p).type == TOKEN_CHAR) {
+                advance(p);
+            } else if (current_token(p).type == TOKEN_UNSIGNED) {
+                advance(p);
+                expect(p, TOKEN_CHAR, "Expected 'char' after 'unsigned'");
+            } else {
+                parser_error_at_token(p, "Expected parameter type (int, char, or unsigned char)");
+                return NULL;
+            }
             param_tok = expect(p, TOKEN_IDENTIFIER, "Expected parameter name");
             add_node_to_list(parameters, create_identifier_node(strdup(param_tok.value)));
         }
@@ -667,7 +717,9 @@ Node* parse(Parser* parser) {
     ProgramNode* program = (ProgramNode*)create_program_node();
     while (current_token(parser).type != TOKEN_EOF) {
         // Check if this is a function definition or global variable declaration
-        if (current_token(parser).type == TOKEN_INT || current_token(parser).type == TOKEN_BOOL || current_token(parser).type == TOKEN_VOID || current_token(parser).type == TOKEN_BITINT) {
+        if (current_token(parser).type == TOKEN_INT || current_token(parser).type == TOKEN_BOOL ||
+            current_token(parser).type == TOKEN_CHAR || current_token(parser).type == TOKEN_UNSIGNED ||
+            current_token(parser).type == TOKEN_VOID || current_token(parser).type == TOKEN_BITINT) {
             
             // Look ahead to see if this is a function (has parentheses) or variable
             Parser temp_parser = *parser;
@@ -679,6 +731,13 @@ Node* parse(Parser* parser) {
                     advance(&temp_parser); // skip '('
                     advance(&temp_parser); // skip number
                     advance(&temp_parser); // skip ')'
+                }
+            }
+            
+            // For unsigned, we need to skip the following type (char or int)
+            if (current_token(parser).type == TOKEN_UNSIGNED) {
+                if (current_token(&temp_parser).type == TOKEN_CHAR || current_token(&temp_parser).type == TOKEN_INT) {
+                    advance(&temp_parser); // skip the type after unsigned
                 }
             }
             
@@ -697,7 +756,29 @@ Node* parse(Parser* parser) {
                 parser_error("Expected identifier after type");
             }
         } else {
-            parser_error("Expected function definition or global variable declaration");
+            Token token = current_token(parser);
+            char error_msg[512];
+            
+            if (token.value && token.value[0] == '#') {
+                snprintf(error_msg, sizeof(error_msg),
+                    "Preprocessor directives like '%s' are not supported. "
+                    "Please use standard C declarations instead.", token.value);
+            } else if (token.value && strcmp(token.value, "continue") == 0) {
+                snprintf(error_msg, sizeof(error_msg),
+                    "'continue' statements are not supported. Use 'break' instead.");
+            } else if (token.value && strcmp(token.value, "_Bool") == 0) {
+                snprintf(error_msg, sizeof(error_msg),
+                    "Type '_Bool' is not directly supported. Use 'bool' instead, or declare as 'int'.");
+            } else {
+                snprintf(error_msg, sizeof(error_msg),
+                    "Expected function definition or global variable declaration. "
+                    "Got '%s' (%s). Supported types: int, bool, char, unsigned char, void, _BitInt(n). "
+                    "Common issues: preprocessor directives (#define), "
+                    "comma operator in expressions, continue statements.",
+                    token.value ? token.value : "unknown", token_type_to_string(token.type));
+            }
+            
+            parser_error_at_token(parser, error_msg);
         }
     }
     return (Node*)program;

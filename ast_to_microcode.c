@@ -15,6 +15,8 @@ static char* create_condition_label(Node* condition);
 static int calculate_jump_address(CompactMicrocode* mc, IfNode* if_node, int current_addr);
 static void process_assignment(CompactMicrocode* mc, AssignmentNode* assign, int* addr);
 static void process_expression_statement(CompactMicrocode* mc, ExpressionStatementNode* expr_stmt, int* addr);
+static void process_switch_statement(CompactMicrocode* mc, SwitchNode* switch_node, int* addr);
+static void process_expression(CompactMicrocode* mc, Node* expr, int* addr);
 static void generate_expected_sequence(CompactMicrocode* mc, int* addr);
 
 CompactMicrocode* ast_to_compact_microcode(Node* ast_root, HardwareContext* hw_ctx) {
@@ -152,8 +154,124 @@ static void process_statement(CompactMicrocode* mc, Node* stmt, int* addr) {
             break;
         }
         
+        case NODE_SWITCH: {
+            SwitchNode* switch_node = (SwitchNode*)stmt;
+            process_switch_statement(mc, switch_node, addr);
+            break;
+        }
+        
         default:
             // Skip other statement types for now
+            break;
+    }
+}
+
+// Process switch statement and generate microcode with jump table
+static void process_switch_statement(CompactMicrocode* mc, SwitchNode* switch_node, int* addr) {
+    if (!switch_node || !switch_node->expression) {
+        return;
+    }
+    
+    // Generate switch expression evaluation
+    process_expression(mc, switch_node->expression, addr);
+    
+    // Create switch jump table instruction
+    // Format: SWITCH_TABLE | (num_cases << 16) | switch_id
+    int num_cases = switch_node->cases ? switch_node->cases->count : 0;
+    
+    // Generate switch table instruction
+    uint32_t switch_instruction = 0x800000 | (num_cases << 16) | (*addr & 0xFFFF);
+    add_compact_instruction(mc, switch_instruction, "SWITCH_TABLE");
+    (*addr)++;
+    
+    // Generate case jump table entries
+    int case_addr = *addr + num_cases;
+    for (int i = 0; i < num_cases; i++) {
+        CaseNode* case_node = (CaseNode*)switch_node->cases->items[i];
+        
+        // Format: CASE_ENTRY | (case_value << 8) | target_addr
+        uint32_t case_value = 0;
+        if (case_node->value && case_node->value->type == NODE_NUMBER_LITERAL) {
+            NumberLiteralNode* num = (NumberLiteralNode*)case_node->value;
+            case_value = (uint32_t)atoi(num->value);
+        }
+        
+        uint32_t case_instruction = 0x810000 | ((case_value & 0xFF) << 8) | (case_addr & 0xFF);
+        add_compact_instruction(mc, case_instruction, "CASE_ENTRY");
+        (*addr)++;
+        
+        case_addr += 10; // Estimate case body size
+    }
+    
+    // Process case bodies
+    for (int i = 0; i < num_cases; i++) {
+        CaseNode* case_node = (CaseNode*)switch_node->cases->items[i];
+        
+        // Add case label
+        char case_label[64];
+        if (case_node->value && case_node->value->type == NODE_NUMBER_LITERAL) {
+            NumberLiteralNode* num = (NumberLiteralNode*)case_node->value;
+            snprintf(case_label, sizeof(case_label), "CASE_%s", num->value);
+        } else {
+            snprintf(case_label, sizeof(case_label), "DEFAULT_CASE");
+        }
+        
+        // Process case statements
+        if (case_node->body) {
+            for (int j = 0; j < case_node->body->count; j++) {
+                process_statement(mc, case_node->body->items[j], addr);
+            }
+        }
+    }
+    
+    // Add switch end marker
+    uint32_t switch_end = 0x840000;
+    add_compact_instruction(mc, switch_end, "SWITCH_END");
+    (*addr)++;
+}
+
+// Process expression and generate microcode
+static void process_expression(CompactMicrocode* mc, Node* expr, int* addr) {
+    if (!expr) return;
+    
+    switch (expr->type) {
+        case NODE_IDENTIFIER: {
+            IdentifierNode* ident = (IdentifierNode*)expr;
+            // Generate load instruction for identifier
+            uint32_t load_word = encode_compact_instruction(0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+            char label[64];
+            snprintf(label, sizeof(label), "load %s", ident->name);
+            add_compact_instruction(mc, load_word, label);
+            (*addr)++;
+            break;
+        }
+        
+        case NODE_NUMBER_LITERAL: {
+            NumberLiteralNode* num = (NumberLiteralNode*)expr;
+            // Generate immediate load instruction
+            uint32_t imm_word = encode_compact_instruction(0, 2, 0, 0, 0, 0, 0, atoi(num->value), 0, 0, 0);
+            char label[64];
+            snprintf(label, sizeof(label), "load #%s", num->value);
+            add_compact_instruction(mc, imm_word, label);
+            (*addr)++;
+            break;
+        }
+        
+        case NODE_BINARY_OP: {
+            BinaryOpNode* binop = (BinaryOpNode*)expr;
+            // Process left operand
+            process_expression(mc, binop->left, addr);
+            // Process right operand
+            process_expression(mc, binop->right, addr);
+            // Generate operation instruction
+            uint32_t op_word = encode_compact_instruction(0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+            add_compact_instruction(mc, op_word, "binop");
+            (*addr)++;
+            break;
+        }
+        
+        default:
+            // Skip other expression types for now
             break;
     }
 }
