@@ -280,6 +280,11 @@ void free_node(Node* node) {
             free_node(n->right);
             break;
         }
+        case NODE_UNARY_OP: {
+            UnaryOpNode* n = (UnaryOpNode*)node;
+            free_node(n->operand);
+            break;
+        }
         case NODE_ASSIGNMENT: {
             AssignmentNode* n = (AssignmentNode*)node;
             free_node(n->identifier);

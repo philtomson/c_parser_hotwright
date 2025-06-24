@@ -579,6 +579,8 @@ SSAValue* process_expression(CFGBuilderContext* ctx, Node* expr, BasicBlock* cur
     switch (expr->type) {
         case NODE_BINARY_OP:
             return process_binary_op(ctx, (BinaryOpNode*)expr, current);
+        case NODE_UNARY_OP:
+            return process_unary_op(ctx, (UnaryOpNode*)expr, current);
         case NODE_ASSIGNMENT:
             return process_assignment(ctx, (AssignmentNode*)expr, current);
         case NODE_IDENTIFIER:
@@ -606,6 +608,18 @@ SSAValue* process_binary_op(CFGBuilderContext* ctx, BinaryOpNode* bin_op, BasicB
     SSAValue* result = create_ssa_temp(ctx->next_temp_id++);
     
     SSAInstruction* inst = create_ssa_binary_op(result, bin_op->op, left, right);
+    add_instruction(current->instructions, inst);
+    
+    return result;
+}
+
+SSAValue* process_unary_op(CFGBuilderContext* ctx, UnaryOpNode* unary_op, BasicBlock* current) {
+    SSAValue* operand = process_expression(ctx, unary_op->operand, current);
+    
+    // Create temporary for result
+    SSAValue* result = create_ssa_temp(ctx->next_temp_id++);
+    
+    SSAInstruction* inst = create_ssa_unary_op(result, unary_op->op, operand);
     add_instruction(current->instructions, inst);
     
     return result;

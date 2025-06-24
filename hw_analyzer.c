@@ -67,21 +67,17 @@ HardwareVarType classify_variable(VarDeclNode* var_decl) {
 bool is_state_variable(VarDeclNode* var_decl) {
     // State variables:
     // 1. Must be boolean, integer, or char type
-    // 2. Must have initialization
-    // 3. Must follow LED naming pattern OR state naming pattern
+    // 2. Must have initialization (initialized global variables are state variables)
     return (var_decl->var_type == TOKEN_BOOL || var_decl->var_type == TOKEN_INT || var_decl->var_type == TOKEN_CHAR) &&
-           (var_decl->initializer != NULL) &&
-           (is_led_variable(var_decl->var_name) || is_state_variable_name(var_decl->var_name));
+           (var_decl->initializer != NULL);
 }
 
 bool is_input_variable(VarDeclNode* var_decl) {
     // Input variables:
     // 1. Must be boolean, integer, or char type
-    // 2. Must NOT have initialization (or be an array)
-    // 3. Must follow input naming pattern (a0, a1, etc.) OR common input patterns
+    // 2. Must NOT have initialization (uninitialized global variables are input variables)
     return (var_decl->var_type == TOKEN_BOOL || var_decl->var_type == TOKEN_INT || var_decl->var_type == TOKEN_CHAR) &&
-           (var_decl->initializer == NULL) &&
-           (is_traditional_input_name(var_decl->var_name) || is_common_input_name(var_decl->var_name));
+           (var_decl->initializer == NULL);
 }
 
 // --- Hardware Pattern Recognition ---
@@ -96,12 +92,18 @@ bool is_led_variable(const char* var_name) {
 }
 
 bool is_state_variable_name(const char* var_name) {
-    // Check for state naming pattern: state0, state1, state2, etc.
-    if (!var_name || strlen(var_name) < 6) {
+    // Check for state naming pattern: state0, state1, state2, etc. OR just "state" (for arrays)
+    if (!var_name || strlen(var_name) < 5) {
         return false;
     }
     
-    return (strncmp(var_name, "state", 5) == 0) && isdigit(var_name[5]);
+    // Accept "state" exactly (for arrays like state[3])
+    if (strcmp(var_name, "state") == 0) {
+        return true;
+    }
+    
+    // Accept "state" followed by digits (for individual variables like state0, state1)
+    return (strncmp(var_name, "state", 5) == 0) && (strlen(var_name) > 5) && isdigit(var_name[5]);
 }
 
 bool is_traditional_input_name(const char* var_name) {
@@ -227,17 +229,32 @@ static void init_hardware_context(HardwareContext* ctx) {
 }
 
 static void add_state_variable(HardwareContext* ctx, VarDeclNode* var_decl) {
-    if (ctx->state_count >= ctx->state_capacity) {
-        resize_state_array(ctx);
+    // Handle arrays by adding multiple state variables
+    int num_elements = (var_decl->array_size > 0) ? var_decl->array_size : 1;
+    
+    for (int i = 0; i < num_elements; i++) {
+        if (ctx->state_count >= ctx->state_capacity) {
+            resize_state_array(ctx);
+        }
+        
+        StateVariable* state = &ctx->states[ctx->state_count];
+        
+        // For arrays, create names like "state[0]", "state[1]", etc.
+        if (var_decl->array_size > 0) {
+            char* array_name = malloc(strlen(var_decl->var_name) + 10); // Extra space for [index]
+            sprintf(array_name, "%s[%d]", var_decl->var_name, i);
+            state->name = array_name;
+            state->state_number = i; // Use array index as state number
+        } else {
+            state->name = strdup(var_decl->var_name);
+            state->state_number = extract_state_number_from_name(var_decl->var_name);
+        }
+        
+        state->initial_value = extract_initial_bool_value(var_decl->initializer);
+        state->ast_node = var_decl;
+        
+        ctx->state_count++;
     }
-    
-    StateVariable* state = &ctx->states[ctx->state_count];
-    state->name = strdup(var_decl->var_name);
-    state->state_number = extract_state_number_from_name(var_decl->var_name);
-    state->initial_value = extract_initial_bool_value(var_decl->initializer);
-    state->ast_node = var_decl;
-    
-    ctx->state_count++;
 }
 
 static void add_input_variable(HardwareContext* ctx, VarDeclNode* var_decl) {

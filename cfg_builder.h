@@ -69,6 +69,7 @@ BasicBlock* process_continue_statement(CFGBuilderContext* ctx, ContinueNode* con
 // Expression processing (returns SSA value)
 SSAValue* process_expression(CFGBuilderContext* ctx, Node* expr, BasicBlock* current);
 SSAValue* process_binary_op(CFGBuilderContext* ctx, BinaryOpNode* bin_op, BasicBlock* current);
+SSAValue* process_unary_op(CFGBuilderContext* ctx, UnaryOpNode* unary_op, BasicBlock* current);
 SSAValue* process_assignment(CFGBuilderContext* ctx, AssignmentNode* assign, BasicBlock* current);
 SSAValue* process_identifier(CFGBuilderContext* ctx, IdentifierNode* ident, BasicBlock* current);
 SSAValue* process_number_literal(CFGBuilderContext* ctx, NumberLiteralNode* num, BasicBlock* current);

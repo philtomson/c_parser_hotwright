@@ -116,7 +116,7 @@ static Node* parse_multiplicative(Parser* p) {
 }
 
 static Node* parse_unary(Parser* p) {
-    if (current_token(p).type == TOKEN_NOT) {
+    if (current_token(p).type == TOKEN_NOT || current_token(p).type == TOKEN_MINUS) {
         TokenType op = current_token(p).type;
         advance(p);
         Node* operand = parse_unary(p); // Right-associative
