@@ -35,15 +35,17 @@ typedef struct {
     int jumps;                // Number of jump instructions
 } HotstateMicrocode;
 
-// Hotstate instruction field definitions (24-bit format)
+// Hotstate instruction field definitions (extended jadr format)
 #define HOTSTATE_STATE_MASK     0x00F000  // Bits 12-15: State assignments
 #define HOTSTATE_MASK_MASK      0x000F00  // Bits 8-11:  State mask
-#define HOTSTATE_JADR_MASK      0x0000F0  // Bits 4-7:   Jump address
+#define HOTSTATE_JADR_MASK      0x0000F0  // Bits 4-7:   Jump address (base 4 bits)
+#define HOTSTATE_JADR_EXT_MASK  0x00F000  // Extended jadr bits (reuse unused high bits)
 #define HOTSTATE_VARSEL_MASK    0x00000F  // Bits 0-3:   Variable selection
 
 #define HOTSTATE_STATE_SHIFT    12
 #define HOTSTATE_MASK_SHIFT     8
 #define HOTSTATE_JADR_SHIFT     4
+#define HOTSTATE_JADR_EXT_SHIFT 12
 #define HOTSTATE_VARSEL_SHIFT   0
 
 // Control flags (additional bits)

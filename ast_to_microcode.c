@@ -148,9 +148,35 @@ static int count_statements(Node* stmt) {
             return count;
         }
         
+        case NODE_SWITCH: {
+            SwitchNode* switch_node = (SwitchNode*)stmt;
+            int count = 2; // switch header + load instruction
+            
+            // Count case statements
+            if (switch_node->cases) {
+                for (int i = 0; i < switch_node->cases->count; i++) {
+                    CaseNode* case_node = (CaseNode*)switch_node->cases->items[i];
+                    count++; // case label
+                    
+                    // Count case body statements
+                    if (case_node->body) {
+                        for (int j = 0; j < case_node->body->count; j++) {
+                            count += count_statements(case_node->body->items[j]);
+                        }
+                    }
+                }
+            }
+            
+            return count;
+        }
+        
         case NODE_ASSIGNMENT:
         case NODE_EXPRESSION_STATEMENT:
             return 1;
+            
+        case NODE_BREAK:
+        case NODE_CONTINUE:
+            return 1; // Break and continue generate jump instructions
             
         case NODE_BLOCK: {
             BlockNode* block = (BlockNode*)stmt;
@@ -183,8 +209,8 @@ static void process_function(CompactMicrocode* mc, FunctionDefNode* func) {
     // Store exit address for use in while loops
     mc->exit_address = exit_addr;
     
-    // Add function entry
-    uint32_t entry_word = encode_compact_instruction(4, 7, 0, 0, 0, 0, 1, 0, 0, 0, 0);
+    // Add function entry - use state=0 to match hotstate
+    uint32_t entry_word = encode_compact_instruction(0, 7, 0, 0, 0, 0, 1, 0, 0, 0, 0);
     add_compact_instruction(mc, entry_word, "main(){");
     addr++;
     
@@ -295,6 +321,26 @@ static void process_statement(CompactMicrocode* mc, Node* stmt, int* addr) {
         case NODE_SWITCH: {
             SwitchNode* switch_node = (SwitchNode*)stmt;
             process_switch_statement(mc, switch_node, addr);
+            break;
+        }
+        
+        case NODE_BREAK: {
+            // Break statement - jump to end of current loop/switch
+            // Break should jump to the exit address (end of while loop)
+            uint32_t break_word = encode_compact_instruction(0, 0, mc->exit_address, 0, 0, 0, 0, 0, 0, 1, 0);
+            add_compact_instruction(mc, break_word, "break;");
+            mc->jump_instructions++;
+            (*addr)++;
+            break;
+        }
+        
+        case NODE_CONTINUE: {
+            // Continue statement - jump to beginning of current loop
+            // Continue should jump back to the while loop start (address 1)
+            uint32_t continue_word = encode_compact_instruction(0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0);
+            add_compact_instruction(mc, continue_word, "continue;");
+            mc->jump_instructions++;
+            (*addr)++;
             break;
         }
         
@@ -436,22 +482,25 @@ static void add_compact_instruction(CompactMicrocode* mc, uint32_t word, const c
     mc->instruction_count++;
 }
 
-static uint32_t encode_compact_instruction(int state, int var, int timer, int jump, 
-                                         int switch_val, int timer_val, int cap, 
+static uint32_t encode_compact_instruction(int state, int var, int timer, int jump,
+                                         int switch_val, int timer_val, int cap,
                                          int var_val, int branch, int force, int ret) {
     // Encode hotstate instruction format using correct bit positions
     uint32_t word = 0;
     
+    // Debug output for main function entry
+    
     // Use exact hotstate bit positions from cfg_to_microcode.h
     word |= (state & 0xF) << HOTSTATE_STATE_SHIFT;    // Bits 12-15: State assignments
     word |= (var & 0xF) << HOTSTATE_MASK_SHIFT;       // Bits 8-11:  State mask
-    word |= (timer & 0xF) << HOTSTATE_JADR_SHIFT;     // Bits 4-7:   Jump address (using timer param for jadr)
+    word |= (timer & 0xFF) << HOTSTATE_JADR_SHIFT;    // Bits 4-7+:  Jump address (using timer param for jadr) - allow larger addresses
     word |= (jump & 0xF) << HOTSTATE_VARSEL_SHIFT;    // Bits 0-3:   Variable selection (using jump param for varSel)
     
     // Control flags
     if (branch) word |= HOTSTATE_BRANCH_FLAG;         // Bit 16: Branch enable
     if (cap) word |= HOTSTATE_STATE_CAP;              // State capture flag
     if (force) word |= HOTSTATE_FORCED_JMP;           // Forced jump flag
+    
     
     return word;
 }
@@ -762,6 +811,23 @@ static char* create_statement_label(Node* stmt) {
 void print_compact_microcode_table(CompactMicrocode* mc, FILE* output) {
     fprintf(output, "\nState Machine Microcode derived from %s\n\n", mc->function_name);
     
+    // Calculate dynamic field widths like hotstate does
+    int addr_bits = 0;
+    int temp_count = mc->instruction_count;
+    while (temp_count > 0) {
+        addr_bits++;
+        temp_count >>= 1;
+    }
+    if (addr_bits == 0) addr_bits = 1; // Minimum 1 bit
+    
+    // Calculate address mask for dynamic jadr field
+    uint32_t dynamic_jadr_mask = 0;
+    for (int i = 0; i < addr_bits; i++) {
+        dynamic_jadr_mask |= (1 << (i + HOTSTATE_JADR_SHIFT));
+    }
+    
+    
+    
     // Print header
     fprintf(output, "              s s                \n");
     fprintf(output, "              w w s     f        \n");
@@ -779,11 +845,22 @@ void print_compact_microcode_table(CompactMicrocode* mc, FILE* output) {
         CompactInstruction* instr = &mc->instructions[i];
         uint32_t word = instr->instruction_word;
         
-        // Extract fields for display (using hotstate format)
+        // Extract fields for display (using dynamic jadr mask)
         int state = (word & HOTSTATE_STATE_MASK) >> HOTSTATE_STATE_SHIFT;
         int mask = (word & HOTSTATE_MASK_MASK) >> HOTSTATE_MASK_SHIFT;
-        int jadr = (word & HOTSTATE_JADR_MASK) >> HOTSTATE_JADR_SHIFT;
+        
+        // For main function entry (address 0), use a smaller jadr mask to avoid overlap with mask field
+        int jadr;
+        if (i == 0) {
+            // Main function entry should have jadr=0, use 4-bit mask to avoid mask field overlap
+            jadr = (word & 0xF0) >> HOTSTATE_JADR_SHIFT;  // Use 4-bit mask (bits 4-7 only)
+        } else {
+            jadr = (word & dynamic_jadr_mask) >> HOTSTATE_JADR_SHIFT;  // Use dynamic mask for other instructions
+        }
+        
         int varsel = (word & HOTSTATE_VARSEL_MASK) >> HOTSTATE_VARSEL_SHIFT;
+        
+        
         
         // Extract switch fields
         int switchsel = (word & HOTSTATE_SWITCH_SEL_MASK) >> HOTSTATE_SWITCH_SEL_SHIFT;
@@ -803,7 +880,7 @@ void print_compact_microcode_table(CompactMicrocode* mc, FILE* output) {
                     i,                  // Address (hex)
                     state & 0xF,        // State assignments
                     mask & 0xF,         // Mask
-                    jadr & 0xF,         // Jump address
+                    jadr,               // Jump address (no mask - use full value)
                     varsel & 0xF,       // Variable selection
                     // timsel = x (no for-loops)
                     // timld = x (no for-loops)
@@ -822,7 +899,7 @@ void print_compact_microcode_table(CompactMicrocode* mc, FILE* output) {
                     i,                  // Address (hex)
                     state & 0xF,        // State assignments
                     mask & 0xF,         // Mask
-                    jadr & 0xF,         // Jump address
+                    jadr,               // Jump address (no mask - use full value)
                     varsel & 0xF,       // Variable selection
                     // timsel = x (no for-loops)
                     // timld = x (no for-loops)
