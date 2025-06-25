@@ -215,6 +215,22 @@ Node* create_initializer_list_node(NodeList* elements) {
     return (Node*)node;
 }
 
+Node* create_goto_node(char* label_name) {
+    GotoNode* node = malloc(sizeof(GotoNode));
+    node->base.type = NODE_GOTO;
+    node->label_name = label_name;
+    return (Node*)node;
+ }
+
+Node* create_label_node(char* label_name, Node* statement) {
+    LabelNode* node = malloc(sizeof(LabelNode));
+    node->base.type = NODE_LABEL;
+    node->label_name = label_name;
+    node->statement = statement;
+    return (Node*)node;
+ }
+
+
 // --- Cleanup Functions ---
 
 // Recursively free a node list

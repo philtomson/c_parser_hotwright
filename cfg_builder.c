@@ -20,6 +20,10 @@ CFGBuilderContext* create_builder_context(CFG* cfg) {
     ctx->next_temp_id = 0;
     ctx->current_scope_level = 0;  // Start at global scope
     
+    // Initialize goto/label support
+    ctx->label_map = create_label_map();
+    ctx->unresolved_gotos = create_unresolved_goto_map();
+    
     return ctx;
 }
 
@@ -45,6 +49,10 @@ void free_builder_context(CFGBuilderContext* ctx) {
         free(ctx->switch_context);
         ctx->switch_context = next;
     }
+    
+    // Free goto/label support structures
+    free_label_map(ctx->label_map);
+    free_unresolved_goto_map(ctx->unresolved_gotos);
     
     free(ctx);
 }
@@ -224,6 +232,10 @@ BasicBlock* process_statement(CFGBuilderContext* ctx, Node* stmt, BasicBlock* cu
             return process_break_statement(ctx, (BreakNode*)stmt, current);
         case NODE_CONTINUE:
             return process_continue_statement(ctx, (ContinueNode*)stmt, current);
+        case NODE_GOTO:
+            return process_goto_statement(ctx, (GotoNode*)stmt, current);
+        case NODE_LABEL:
+            return process_label_statement(ctx, (LabelNode*)stmt, current);
         default:
             // Unsupported statement type
             return current;
@@ -761,5 +773,266 @@ BasicBlock* split_block(CFGBuilderContext* ctx, BasicBlock* block, const char* l
     // Add edge from block to new_block
     add_edge(block, new_block);
     
-    return new_block;
+}
+
+// --- Goto/Label Support Functions ---
+
+// Label map management functions
+LabelMap* create_label_map(void) {
+    LabelMap* map = (LabelMap*)malloc(sizeof(LabelMap));
+    if (!map) return NULL;
+    
+    map->entries = NULL;
+    map->count = 0;
+    map->capacity = 0;
+    
+    return map;
+}
+
+void free_label_map(LabelMap* map) {
+    if (!map) return;
+    
+    for (int i = 0; i < map->count; i++) {
+        free(map->entries[i].label_name);
+    }
+    free(map->entries);
+    free(map);
+}
+
+BasicBlock* lookup_label(LabelMap* map, const char* label_name) {
+    if (!map || !label_name) return NULL;
+    
+    for (int i = 0; i < map->count; i++) {
+        if (strcmp(map->entries[i].label_name, label_name) == 0) {
+            return map->entries[i].block;
+        }
+    }
+    return NULL;
+}
+
+void add_label(LabelMap* map, const char* label_name, BasicBlock* block) {
+    if (!map || !label_name || !block) return;
+    
+    // Check if we need to expand the array
+    if (map->count >= map->capacity) {
+        int new_capacity = map->capacity == 0 ? 4 : map->capacity * 2;
+        LabelMapEntry* new_entries = (LabelMapEntry*)realloc(map->entries, 
+                                                            new_capacity * sizeof(LabelMapEntry));
+        if (!new_entries) return;
+        
+        map->entries = new_entries;
+        map->capacity = new_capacity;
+    }
+    
+    // Add the new entry
+    map->entries[map->count].label_name = strdup(label_name);
+    map->entries[map->count].block = block;
+    map->count++;
+}
+
+// Unresolved goto map management functions
+UnresolvedGotoMap* create_unresolved_goto_map(void) {
+    UnresolvedGotoMap* map = (UnresolvedGotoMap*)malloc(sizeof(UnresolvedGotoMap));
+    if (!map) return NULL;
+    
+    map->entries = NULL;
+    map->count = 0;
+    map->capacity = 0;
+    
+    return map;
+}
+
+void free_unresolved_goto_map(UnresolvedGotoMap* map) {
+    if (!map) return;
+    
+    for (int i = 0; i < map->count; i++) {
+        free(map->entries[i].label_name);
+        
+        // Free the pending goto list
+        PendingGotoNode* current = map->entries[i].pending_list_head;
+        while (current) {
+            PendingGotoNode* next = current->next;
+            free(current);
+            current = next;
+        }
+    }
+    free(map->entries);
+    free(map);
+}
+
+void add_unresolved_goto(UnresolvedGotoMap* map, const char* label_name, 
+                        BasicBlock* waiting_block, SSAInstruction* jump_instr) {
+    if (!map || !label_name || !waiting_block || !jump_instr) return;
+    
+    // Look for existing entry for this label
+    for (int i = 0; i < map->count; i++) {
+        if (strcmp(map->entries[i].label_name, label_name) == 0) {
+            // Add to existing pending list
+            PendingGotoNode* new_node = (PendingGotoNode*)malloc(sizeof(PendingGotoNode));
+            if (!new_node) return;
+            
+            new_node->waiting_block = waiting_block;
+            new_node->jump_instr = jump_instr;
+            new_node->next = map->entries[i].pending_list_head;
+            map->entries[i].pending_list_head = new_node;
+            return;
+        }
+    }
+    
+    // Create new entry
+    if (map->count >= map->capacity) {
+        int new_capacity = map->capacity == 0 ? 4 : map->capacity * 2;
+        UnresolvedGotoEntry* new_entries = (UnresolvedGotoEntry*)realloc(map->entries,
+                                                                        new_capacity * sizeof(UnresolvedGotoEntry));
+        if (!new_entries) return;
+        
+        map->entries = new_entries;
+        map->capacity = new_capacity;
+    }
+    
+    // Create the pending goto node
+    PendingGotoNode* new_node = (PendingGotoNode*)malloc(sizeof(PendingGotoNode));
+    if (!new_node) return;
+    
+    new_node->waiting_block = waiting_block;
+    new_node->jump_instr = jump_instr;
+    new_node->next = NULL;
+    
+    // Add the new entry
+    map->entries[map->count].label_name = strdup(label_name);
+    map->entries[map->count].pending_list_head = new_node;
+    map->count++;
+}
+
+PendingGotoNode* get_pending_gotos(UnresolvedGotoMap* map, const char* label_name) {
+    if (!map || !label_name) return NULL;
+    
+    for (int i = 0; i < map->count; i++) {
+        if (strcmp(map->entries[i].label_name, label_name) == 0) {
+            return map->entries[i].pending_list_head;
+        }
+    }
+    return NULL;
+}
+
+void remove_resolved_gotos(UnresolvedGotoMap* map, const char* label_name) {
+    if (!map || !label_name) return;
+    
+    for (int i = 0; i < map->count; i++) {
+        if (strcmp(map->entries[i].label_name, label_name) == 0) {
+            // Free the pending list
+            PendingGotoNode* current = map->entries[i].pending_list_head;
+            while (current) {
+                PendingGotoNode* next = current->next;
+                free(current);
+                current = next;
+            }
+            
+            // Remove this entry by shifting remaining entries
+            free(map->entries[i].label_name);
+            for (int j = i; j < map->count - 1; j++) {
+                map->entries[j] = map->entries[j + 1];
+            }
+            map->count--;
+            return;
+        }
+    }
+}
+
+// Hardware validation function
+int validate_goto_for_hardware(CFGBuilderContext* ctx, const char* label_name) {
+    (void)ctx;       // For now, we'll implement basic validation
+    (void)label_name; // More sophisticated validation can be added later
+    
+    // For hardware compatibility, we'll allow all gotos within the same function
+    // More restrictive rules can be added here if needed:
+    // - No jumping into loop bodies (would require loop context tracking)
+    // - No jumping into switch statements (would require switch context tracking)
+    
+    return 1; // Valid for now
+}
+
+// Resolve pending gotos when a label is registered
+void resolve_pending_gotos(CFGBuilderContext* ctx, const char* label_name, BasicBlock* target_block) {
+    if (!ctx || !label_name || !target_block) return;
+    
+    PendingGotoNode* pending = get_pending_gotos(ctx->unresolved_gotos, label_name);
+    
+    while (pending) {
+        // Set the jump target
+        pending->jump_instr->data.jump_data.target = target_block;
+        
+        // Add edge from waiting block to target block
+        add_edge(pending->waiting_block, target_block);
+        
+        pending = pending->next;
+    }
+    
+    // Remove resolved gotos from the unresolved map
+    remove_resolved_gotos(ctx->unresolved_gotos, label_name);
+}
+
+// Register a label and resolve any pending gotos
+void register_label(CFGBuilderContext* ctx, const char* label_name, BasicBlock* block) {
+    if (!ctx || !label_name || !block) return;
+    
+    // Add to label map
+    add_label(ctx->label_map, label_name, block);
+    
+    // Resolve any pending gotos waiting for this label
+    resolve_pending_gotos(ctx, label_name, block);
+}
+
+// Process a goto statement
+BasicBlock* process_goto_statement(CFGBuilderContext* ctx, GotoNode* goto_node, BasicBlock* current) {
+    if (!ctx || !goto_node || !current) return current;
+    
+    // Hardware validation
+    if (!validate_goto_for_hardware(ctx, goto_node->label_name)) {
+        fprintf(stderr, "Error: Goto to '%s' is not hardware-compatible\n", goto_node->label_name);
+        return NULL;
+    }
+    
+    // Create jump instruction
+    SSAInstruction* jump_instr = create_ssa_jump(NULL); // Target will be set when resolved
+    add_instruction(current->instructions, jump_instr);
+    
+    // Try to resolve immediately
+    BasicBlock* target = lookup_label(ctx->label_map, goto_node->label_name);
+    if (target) {
+        // Label already exists - set target and create edge
+        jump_instr->data.jump_data.target = target;
+        add_edge(current, target);
+    } else {
+        // Label not yet seen - add to unresolved list
+        add_unresolved_goto(ctx->unresolved_gotos, goto_node->label_name, current, jump_instr);
+    }
+    
+    // Goto terminates the current block, but we need to create a new block
+    // for any statements that follow (even though they're unreachable)
+    BasicBlock* unreachable_block = create_basic_block(ctx->cfg, "unreachable");
+    return unreachable_block;
+}
+
+// Process a labeled statement
+BasicBlock* process_label_statement(CFGBuilderContext* ctx, LabelNode* label_node, BasicBlock* current) {
+    if (!ctx || !label_node || !current) return current;
+    
+    // Create a new block for the label (labels are potential merge points)
+    BasicBlock* label_block = create_basic_block(ctx->cfg, label_node->label_name);
+    if (!label_block) return current;
+    
+    // Connect current block to label block if current block doesn't already have a terminator
+    if (current->instructions->count == 0 || 
+        (current->instructions->items[current->instructions->count - 1]->type != SSA_JUMP &&
+         current->instructions->items[current->instructions->count - 1]->type != SSA_BRANCH &&
+         current->instructions->items[current->instructions->count - 1]->type != SSA_RETURN)) {
+        add_edge(current, label_block);
+    }
+    
+    // Register the label
+    register_label(ctx, label_node->label_name, label_block);
+    
+    // Process the labeled statement in the new block
+    return process_statement(ctx, label_node->statement, label_block);
 }

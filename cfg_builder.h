@@ -4,6 +4,40 @@
 #include "cfg.h"
 #include "ast.h"
 
+
+// An entry mapping a lable name to it's BasicBlock
+typedef struct {
+    char* label_name;
+    BasicBlock* block;
+} LabelMapEntry;
+
+typedef struct {
+    LabelMapEntry* entries;
+    int count;
+    int capacity;
+} LabelMap;
+
+// A node in a linked list of BasicBlocks that are waiting for a label
+typedef struct PendingGotoNode {
+    BasicBlock* waiting_block;
+    SSAInstruction* jump_instr;  // The jump instruction that needs target resolution
+    struct PendingGotoNode* next;
+} PendingGotoNode;
+
+// An entry for a label that hasn't been seen yet
+typedef struct {
+    char* label_name;
+    PendingGotoNode* pending_list_head;
+} UnresolvedGotoEntry;
+
+// The "map" for unresolved gotos
+typedef struct {
+    UnresolvedGotoEntry* entries;
+    int count;
+    int capacity;
+} UnresolvedGotoMap;
+
+
 // Builder context to track state during CFG construction
 typedef struct CFGBuilderContext {
     CFG* cfg;
@@ -36,6 +70,10 @@ typedef struct CFGBuilderContext {
     
     // Temporary counter
     int next_temp_id;
+    
+    // Goto/Label support
+    LabelMap* label_map;                    // Maps resolved labels to blocks
+    UnresolvedGotoMap* unresolved_gotos;    // Tracks pending gotos
 } CFGBuilderContext;
 
 // Main entry points
@@ -65,6 +103,26 @@ BasicBlock* process_switch_statement(CFGBuilderContext* ctx, SwitchNode* switch_
 BasicBlock* process_return_statement(CFGBuilderContext* ctx, ReturnNode* ret_stmt, BasicBlock* current);
 BasicBlock* process_break_statement(CFGBuilderContext* ctx, BreakNode* break_stmt, BasicBlock* current);
 BasicBlock* process_continue_statement(CFGBuilderContext* ctx, ContinueNode* continue_stmt, BasicBlock* current);
+
+// Goto/Label processing functions
+BasicBlock* process_goto_statement(CFGBuilderContext* ctx, GotoNode* goto_node, BasicBlock* current);
+BasicBlock* process_label_statement(CFGBuilderContext* ctx, LabelNode* label_node, BasicBlock* current);
+void register_label(CFGBuilderContext* ctx, const char* label_name, BasicBlock* block);
+void resolve_pending_gotos(CFGBuilderContext* ctx, const char* label_name, BasicBlock* target_block);
+int validate_goto_for_hardware(CFGBuilderContext* ctx, const char* label_name);
+
+// Label map management functions
+LabelMap* create_label_map(void);
+void free_label_map(LabelMap* map);
+BasicBlock* lookup_label(LabelMap* map, const char* label_name);
+void add_label(LabelMap* map, const char* label_name, BasicBlock* block);
+
+// Unresolved goto map management functions
+UnresolvedGotoMap* create_unresolved_goto_map(void);
+void free_unresolved_goto_map(UnresolvedGotoMap* map);
+void add_unresolved_goto(UnresolvedGotoMap* map, const char* label_name, BasicBlock* waiting_block, SSAInstruction* jump_instr);
+PendingGotoNode* get_pending_gotos(UnresolvedGotoMap* map, const char* label_name);
+void remove_resolved_gotos(UnresolvedGotoMap* map, const char* label_name);
 
 // Expression processing (returns SSA value)
 SSAValue* process_expression(CFGBuilderContext* ctx, Node* expr, BasicBlock* current);

@@ -117,7 +117,11 @@ void cfg_to_dot_file(CFG* cfg, FILE* file) {
                     break;
                 }
                 case SSA_JUMP: {
-                    fprintf(file, "goto bb%d\\n", inst->data.jump_data.target->id);
+                    if (inst->data.jump_data.target) {
+                        fprintf(file, "goto bb%d\\n", inst->data.jump_data.target->id);
+                    } else {
+                        fprintf(file, "goto <unresolved>\\n");
+                    }
                     break;
                 }
                 case SSA_SWITCH: {
@@ -302,7 +306,11 @@ void print_ssa_instruction(SSAInstruction* inst) {
             break;
         }
         case SSA_JUMP: {
-            printf("goto bb%d", inst->data.jump_data.target->id);
+            if (inst->data.jump_data.target) {
+                printf("goto bb%d", inst->data.jump_data.target->id);
+            } else {
+                printf("goto <unresolved>");
+            }
             break;
         }
         case SSA_SWITCH: {

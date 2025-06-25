@@ -18,6 +18,9 @@ static Node* parse_while_statement(Parser* p);
 static Node* parse_for_statement(Parser* p);
 static Node* parse_switch_statement(Parser* p);
 static Node* parse_expression_statement(Parser* p);
+static Node* parse_goto_statement(Parser* p);
+static Node* parse_continue_statement(Parser* p);
+
 
 // Expression Parsers (for operator precedence)
 static Node* parse_expression(Parser* p);
@@ -583,6 +586,15 @@ static Node* parse_for_statement(Parser* p) {
 }
 
 static Node* parse_statement(Parser* p) {
+    // check for a label: IDENTIFIER followed by a COLON
+    if (current_token(p).type == TOKEN_IDENTIFIER && peek_token(p).type == TOKEN_COLON) {
+        Token label_tok = current_token(p);
+        advance(p); // Consume Identifier
+        advance(p); // Consume Colon
+        //Now parse the actual statement the lable is attached to
+        Node* statmnt = parse_statement(p);  
+        return create_label_node(strdup(label_tok.value), statmnt);
+    }
     // Check for declaration: 'int', 'bool', 'char', 'unsigned', or '_BitInt' followed by an identifier
     if ((current_token(p).type == TOKEN_INT || current_token(p).type == TOKEN_BOOL ||
          current_token(p).type == TOKEN_CHAR || current_token(p).type == TOKEN_UNSIGNED ||
@@ -620,6 +632,7 @@ static Node* parse_statement(Parser* p) {
             expect(p, TOKEN_SEMICOLON, "Expected ';' after return");
             return create_return_node(return_value);
         case TOKEN_LBRACE: return parse_block_statement(p);
+        case TOKEN_GOTO: return parse_goto_statement(p);
         
         // Add other statement types like function calls here
         
@@ -696,6 +709,15 @@ static Node* parse_function_definition(Parser* p) {
     Node* body = parse_block_statement(p);
     return create_function_def_node(strdup(name_tok.value), parameters, body);
 }
+
+static Node* parse_goto_statement(Parser* p) {
+    expect(p, TOKEN_GOTO, "Expected 'goto'");
+    Token label_tok = expect(p, TOKEN_IDENTIFIER, "Expected label name");
+    expect(p, TOKEN_SEMICOLON, "Expected ';' after goto");
+    return create_goto_node(strdup(label_tok.value));
+}
+
+
 
 
 // --- Public API ---

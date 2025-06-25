@@ -132,6 +132,7 @@ static Token identifier_or_keyword(Lexer* lexer) {
     if (strcmp(value, "switch") == 0) { free(value); return make_token(TOKEN_SWITCH, "switch", 6, lexer->line, start_column); }
     if (strcmp(value, "case") == 0) { free(value); return make_token(TOKEN_CASE, "case", 4, lexer->line, start_column); }
     if (strcmp(value, "default") == 0) { free(value); return make_token(TOKEN_DEFAULT, "default", 7, lexer->line, start_column); }
+    if (strcmp(value, "goto") == 0) { free(value); return make_token(TOKEN_GOTO, "goto", 4, lexer->line, start_column); }
     
     Token token = make_token(TOKEN_IDENTIFIER, value, strlen(value), lexer->line, start_column);
     free(value);  // Free the temporary value since make_token makes its own copy
@@ -283,7 +284,7 @@ const char* token_type_to_string(TokenType type) {
     switch(type) {
         case TOKEN_INT: return "INT"; case TOKEN_BOOL: return "BOOL"; case TOKEN_CHAR: return "CHAR"; case TOKEN_UNSIGNED: return "UNSIGNED"; case TOKEN_VOID: return "VOID"; case TOKEN_BITINT: return "BITINT"; case TOKEN_TRUE: return "TRUE"; case TOKEN_FALSE: return "FALSE";
         case TOKEN_IF: return "IF"; case TOKEN_ELSE: return "ELSE";
-        case TOKEN_WHILE: return "WHILE"; case TOKEN_FOR: return "FOR"; case TOKEN_RETURN: return "RETURN"; case TOKEN_BREAK: return "BREAK"; case TOKEN_CONTINUE: return "CONTINUE";
+        case TOKEN_WHILE: return "WHILE"; case TOKEN_FOR: return "FOR"; case TOKEN_RETURN: return "RETURN"; case TOKEN_BREAK: return "BREAK"; case TOKEN_CONTINUE: return "CONTINUE"; case TOKEN_GOTO: return "GOTO";
         case TOKEN_SWITCH: return "SWITCH"; case TOKEN_CASE: return "CASE"; case TOKEN_DEFAULT: return "DEFAULT";
         case TOKEN_INCLUDE: return "INCLUDE";
         case TOKEN_IDENTIFIER: return "IDENTIFIER"; case TOKEN_NUMBER: return "NUMBER"; case TOKEN_STRING: return "STRING";

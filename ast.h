@@ -28,7 +28,9 @@ typedef enum {
     NODE_INITIALIZER_LIST, // <-- For array initializers like {1, 2, 3}
     NODE_IDENTIFIER,
     NODE_NUMBER_LITERAL,
-    NODE_BOOL_LITERAL      // <-- For true/false
+    NODE_BOOL_LITERAL,      // <-- For true/false
+    NODE_GOTO,
+    NODE_LABEL 
 } NodeType;
 
 // Base struct for all AST nodes
@@ -136,13 +138,6 @@ typedef struct {
     Node* operand;
 } UnaryOpNode;
 
-/*
-typedef struct {
-    Node base;
-    char* identifier_name; // Changed from 'identifier' to avoid conflict with node type
-    Node* value;
-} AssignmentNode;
-*/
 
 typedef struct {
     Node base;
@@ -182,6 +177,19 @@ typedef struct {
     NodeList* elements;  // List of expressions in the initializer
 } InitializerListNode;
 
+// Define the struct for a goto statement
+typedef struct {
+    Node base;
+    char* label_name;
+ } GotoNode;
+
+// Define the struct for a labeled statement
+typedef struct {
+    Node base;
+    char* label_name;
+    Node* statement; // The statement that the label is attached to
+} LabelNode;
+
 
 // --- AST Creation Functions (with missing declarations added) ---
 Node* create_program_node();
@@ -207,6 +215,9 @@ Node* create_function_call_node(char* name, NodeList* arguments);
 Node* create_array_access_node(Node* array, Node* index);
 Node* create_bool_literal_node(int value);
 Node* create_initializer_list_node(NodeList* elements);
+Node* create_goto_node(char* label_name);
+Node* create_label_node(char* label_name, Node* statement);
+
 // ... add others as you expand the language
 
 
