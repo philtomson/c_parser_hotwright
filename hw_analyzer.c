@@ -16,6 +16,7 @@ static void add_input_variable_with_array_support(HardwareContext* ctx, VarDeclN
 static void build_lookup_tables(HardwareContext* ctx);
 static void traverse_ast_for_variables(Node* node, HardwareContext* ctx);
 static bool extract_initial_bool_value(Node* initializer);
+static int assign_sequential_state_numbers(HardwareContext* ctx);
 
 // --- Main Analysis Function ---
 
@@ -29,6 +30,9 @@ HardwareContext* analyze_hardware_constructs(Node* ast) {
     
     // Traverse AST to find all variable declarations
     traverse_ast_for_variables(ast, ctx);
+    
+    // Assign sequential state numbers to all state variables
+    assign_sequential_state_numbers(ctx);
     
     // Build lookup tables for fast access
     build_lookup_tables(ctx);
@@ -82,39 +86,6 @@ bool is_input_variable(VarDeclNode* var_decl) {
 
 // --- Hardware Pattern Recognition ---
 
-bool is_led_variable(const char* var_name) {
-    // Check for LED naming pattern: LED0, LED1, LED2, etc.
-    if (!var_name || strlen(var_name) < 4) {
-        return false;
-    }
-    
-    return (strncmp(var_name, "LED", 3) == 0) && isdigit(var_name[3]);
-}
-
-bool is_state_variable_name(const char* var_name) {
-    // Check for state naming pattern: state0, state1, state2, etc. OR just "state" (for arrays)
-    if (!var_name || strlen(var_name) < 5) {
-        return false;
-    }
-    
-    // Accept "state" exactly (for arrays like state[3])
-    if (strcmp(var_name, "state") == 0) {
-        return true;
-    }
-    
-    // Accept "state" followed by digits (for individual variables like state0, state1)
-    return (strncmp(var_name, "state", 5) == 0) && (strlen(var_name) > 5) && isdigit(var_name[5]);
-}
-
-bool is_traditional_input_name(const char* var_name) {
-    // Check for traditional input naming pattern: a0, a1, etc.
-    if (!var_name || strlen(var_name) < 2) {
-        return false;
-    }
-    
-    return (var_name[0] == 'a') && isdigit(var_name[1]);
-}
-
 bool is_common_input_name(const char* var_name) {
     // Check for common input naming patterns: case_in, new_case, input, etc.
     if (!var_name) {
@@ -126,16 +97,17 @@ bool is_common_input_name(const char* var_name) {
            (strstr(var_name, "in") != NULL);
 }
 
-int extract_state_number_from_name(const char* var_name) {
-    // Extract state number from LED or state variable name
-    // LED0 -> 0, LED1 -> 1, state0 -> 0, state1 -> 1, etc.
-    if (is_led_variable(var_name)) {
-        return atoi(var_name + 3);  // Skip "LED" prefix
-    } else if (is_state_variable_name(var_name)) {
-        return atoi(var_name + 5);  // Skip "state" prefix
+
+// New function to assign sequential state numbers to all state variables
+static int assign_sequential_state_numbers(HardwareContext* ctx) {
+    int state_counter = 0;
+    
+    // Assign sequential state numbers to all state variables
+    for (int i = 0; i < ctx->state_count; i++) {
+        ctx->states[i].state_number = state_counter++;
     }
     
-    return -1;
+    return state_counter; // Return total number of state variables
 }
 
 // --- AST Traversal ---
@@ -244,10 +216,10 @@ static void add_state_variable(HardwareContext* ctx, VarDeclNode* var_decl) {
             char* array_name = malloc(strlen(var_decl->var_name) + 10); // Extra space for [index]
             sprintf(array_name, "%s[%d]", var_decl->var_name, i);
             state->name = array_name;
-            state->state_number = i; // Use array index as state number
+            state->state_number = -1; // Will be assigned sequentially later
         } else {
             state->name = strdup(var_decl->var_name);
-            state->state_number = extract_state_number_from_name(var_decl->var_name);
+            state->state_number = -1; // Will be assigned sequentially later
         }
         
         state->initial_value = extract_initial_bool_value(var_decl->initializer);

@@ -59,10 +59,6 @@ bool is_state_variable(VarDeclNode* var_decl);
 bool is_input_variable(VarDeclNode* var_decl);
 
 // State number extraction (for future comment support)
-int extract_state_number_from_name(const char* var_name);
-bool is_led_variable(const char* var_name);
-bool is_state_variable_name(const char* var_name);
-bool is_traditional_input_name(const char* var_name);
 bool is_common_input_name(const char* var_name);
 
 // Lookup functions

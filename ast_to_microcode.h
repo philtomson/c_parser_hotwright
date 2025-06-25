@@ -11,6 +11,9 @@ typedef struct {
     uint32_t instruction_word;  // 24-bit hotstate instruction
     char* label;               // Human-readable label
     int address;               // Instruction address
+    int switch_id;             // Switch ID for this instruction (-1 if not a switch)
+    int is_switch;             // Flag indicating switch instruction
+    int is_case;               // Flag indicating case target
 } CompactInstruction;
 
 // Compact microcode structure
@@ -20,6 +23,14 @@ typedef struct {
     int instruction_capacity;
     char* function_name;
     HardwareContext* hw_ctx;
+    
+    // Switch memory management
+    uint32_t* switchmem;       // Global switch memory table
+    int switch_count;          // Number of switches processed
+    int switch_offset_bits;    // Bits per switch (default 8)
+    
+    // Address management
+    int exit_address;          // Calculated exit address for while loops
     
     // Analysis data
     int state_assignments;

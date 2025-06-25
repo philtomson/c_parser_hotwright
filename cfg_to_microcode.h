@@ -52,6 +52,18 @@ typedef struct {
 #define HOTSTATE_STATE_CAP      0x040000  // Bit 18: State capture
 #define HOTSTATE_VAR_TIMER      0x080000  // Bit 19: Variable/timer select
 
+// Switch fields (hotstate positions 8 and 9)
+#define HOTSTATE_SWITCH_SEL_MASK  0x00F00000  // Bits 20-23: Switch selection (switchsel)
+#define HOTSTATE_SWITCH_ADR_MASK  0x01000000  // Bit 24: Switch address flag (switchadr)
+
+#define HOTSTATE_SWITCH_SEL_SHIFT 20
+#define HOTSTATE_SWITCH_ADR_SHIFT 24
+
+// Switch memory configuration
+#define MAX_SWITCH_ENTRIES      4096    // Total switch memory entries
+#define SWITCH_OFFSET_BITS      8       // 256 entries per switch (2^8)
+#define MAX_SWITCHES           16       // Maximum number of switches
+
 // --- Core Translation Functions ---
 
 // Main translation function

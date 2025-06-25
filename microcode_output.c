@@ -28,14 +28,21 @@ void print_hotstate_microcode_table(HotstateMicrocode* mc, FILE* output) {
         uint32_t state_cap = (instr->instruction_word & HOTSTATE_STATE_CAP) ? 1 : 0;
         uint32_t var_timer = (instr->instruction_word & HOTSTATE_VAR_TIMER) ? 1 : 0;
         
-        // Print in hotstate format: addr state mask jadr varsel ... flags
-        fprintf(output, "%x %x %x %x %x x x x x %x %x %x %x %x %x   %s\n",
+        // Extract switch fields from instruction
+        uint32_t switchsel = (instr->instruction_word & HOTSTATE_SWITCH_SEL_MASK) >> HOTSTATE_SWITCH_SEL_SHIFT;
+        uint32_t switchadr = (instr->instruction_word & HOTSTATE_SWITCH_ADR_MASK) >> HOTSTATE_SWITCH_ADR_SHIFT;
+        
+        // Print in hotstate format: addr state mask jadr varsel unused1 unused2 switchsel switchadr flags
+        fprintf(output, "%x %x %x %x %x %x %x %x %x %x %x %x %x %x %x   %s\n",
             i,                  // Address (hex)
             state & 0xF,        // State assignments
             mask & 0xF,         // Mask
             jadr & 0xF,         // Jump address
             varsel & 0xF,       // Variable selection
-            // x x x x (unused fields)
+            0,                  // Unused field 1
+            0,                  // Unused field 2
+            switchsel & 0xF,    // Switch selection (position 8)
+            switchadr & 0x1,    // Switch address flag (position 9)
             state_cap,          // State capture
             var_timer,          // Var or timer
             branch,             // Branch
