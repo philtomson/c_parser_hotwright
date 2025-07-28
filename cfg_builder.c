@@ -451,7 +451,6 @@ BasicBlock* process_continue_statement(CFGBuilderContext* ctx, ContinueNode* con
         add_instruction(current->instructions, create_ssa_jump(ctx->loop_context->header));
         add_edge(current, ctx->loop_context->header);
     }
-    // Note: continue in switch context is not valid C, but if it happens, we ignore it
     
     return NULL; // No successor block after continue
 }

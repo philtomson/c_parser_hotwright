@@ -39,6 +39,8 @@ HardwareContext* analyze_hardware_constructs(Node* ast) {
     
     // Validate the hardware context
     ctx->analysis_successful = validate_hardware_context(ctx);
+    // Add debug print of hardware context
+    print_hardware_context(ctx, stderr);
     
     return ctx;
 }

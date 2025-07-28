@@ -1,11 +1,14 @@
 #define _GNU_SOURCE  // For strdup
 #include "cfg_to_microcode.h"
+#include "microcode_defs.h" // Include new microcode definitions
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <limits.h> // For INT_MIN
+
 
 // --- Internal Helper Functions ---
-
+ 
 static void init_hotstate_microcode(HotstateMicrocode* mc, CFG* cfg, HardwareContext* hw_ctx);
 static char* generate_instruction_label(SSAInstruction* instr, BasicBlock* block);
 static bool is_boolean_expression(Node* expr);
@@ -71,7 +74,11 @@ void translate_phi_nodes(HotstateMicrocode* mc, BasicBlock* block) {
         snprintf(label, sizeof(label), "phi: %s", 
                 ssa_value_to_string(phi->dest));
         
-        add_hotstate_instruction(mc, encode_nop_instruction(), label, block);
+        // Populate MCode struct for NOP
+        MCode nop_mcode = {0}; // All fields to 0
+        nop_mcode.forced_jmp = 1; // NOP usually means just continue
+        add_hotstate_instruction(mc, nop_mcode, label, block);
+        printf("DEBUG: translate_phi_nodes: Added NOP MCode (forced_jmp: %d)\n", nop_mcode.forced_jmp);
     }
 }
 
@@ -80,35 +87,39 @@ void translate_instructions(HotstateMicrocode* mc, BasicBlock* block) {
     
     for (int i = 0; i < block->instructions->count; i++) {
         SSAInstruction* instr = block->instructions->items[i];
-        uint32_t instruction_word = 0;
+        MCode mcode = {0}; // Initialize all fields to 0
         char* label = generate_instruction_label(instr, block);
         
         switch (instr->type) {
             case SSA_ASSIGN:
                 if (is_state_assignment(instr, mc->hw_ctx)) {
-                    instruction_word = encode_state_assignment(instr, mc->hw_ctx);
+                    // For now, encode_state_assignment returns uint32_t.
+                    // We need to convert it to MCode. This is a temporary solution.
+                    // Later, encode_state_assignment should directly return MCode.
+                    mcode = encode_state_assignment(instr, mc->hw_ctx);
+
                     mc->state_assignments++;
                 } else {
-                    instruction_word = encode_nop_instruction();
+                    mcode.forced_jmp = 1; // NOP
                 }
                 break;
                 
             case SSA_BINARY_OP:
-                // For now, treat as NOP - complex expressions need decomposition
-                instruction_word = encode_nop_instruction();
+                mcode.forced_jmp = 1; // NOP
                 break;
                 
             case SSA_CALL:
-                // Function calls not supported in hardware - treat as NOP
-                instruction_word = encode_nop_instruction();
+                mcode.forced_jmp = 1; // NOP
                 break;
                 
             default:
-                instruction_word = encode_nop_instruction();
+                mcode.forced_jmp = 1; // NOP
                 break;
         }
         
-        add_hotstate_instruction(mc, instruction_word, label, block);
+        add_hotstate_instruction(mc, mcode, label, block);
+        printf("DEBUG: translate_instructions: Added MCode (state: %d, mask: %d, jadr: %d, varSel: %d, timerSel: %d, timerLd: %d, switch_sel: %d, switch_adr: %d, state_capture: %d, var_or_timer: %d, branch: %d, forced_jmp: %d, sub: %d, rtn: %d)\n",
+               mcode.state, mcode.mask, mcode.jadr, mcode.varSel, mcode.timerSel, mcode.timerLd, mcode.switch_sel, mcode.switch_adr, mcode.state_capture, mcode.var_or_timer, mcode.branch, mcode.forced_jmp, mcode.sub, mcode.rtn);
         free(label);
     }
 }
@@ -116,7 +127,10 @@ void translate_instructions(HotstateMicrocode* mc, BasicBlock* block) {
 void translate_control_flow(HotstateMicrocode* mc, BasicBlock* block) {
     if (block->successor_count == 0) {
         // Terminal block - add halt/return instruction
-        add_hotstate_instruction(mc, encode_nop_instruction(), "halt", block);
+        MCode halt_mcode = {0};
+        halt_mcode.forced_jmp = 1; // Or some other halt instruction
+        add_hotstate_instruction(mc, halt_mcode, "halt", block);
+        printf("DEBUG: translate_control_flow: Added HALT MCode (forced_jmp: %d)\n", halt_mcode.forced_jmp);
         return;
     }
     
@@ -124,12 +138,14 @@ void translate_control_flow(HotstateMicrocode* mc, BasicBlock* block) {
         // Unconditional jump to successor
         BasicBlock* target = block->successors[0];
         int target_addr = get_block_address(mc, target);
-        uint32_t jump_instr = encode_unconditional_jump(target_addr);
+        // Temporary: encode_unconditional_jump still returns uint32_t
+        MCode jump_mcode = encode_unconditional_jump(target_addr);
         
         char label[64];
         snprintf(label, sizeof(label), "jump -> block_%d", target->id);
-        add_hotstate_instruction(mc, jump_instr, label, block);
+        add_hotstate_instruction(mc, jump_mcode, label, block);
         mc->jumps++;
+        printf("DEBUG: translate_control_flow: Added JUMP MCode (jadr: %d, forced_jmp: %d)\n", jump_mcode.jadr, jump_mcode.forced_jmp);
         
     } else if (block->successor_count == 2) {
         // Conditional branch - need to find the branch condition
@@ -148,86 +164,94 @@ void translate_control_flow(HotstateMicrocode* mc, BasicBlock* block) {
         if (branch_instr) {
             int true_addr = get_block_address(mc, true_target);
             int false_addr = get_block_address(mc, false_target);
-            uint32_t branch_word = encode_conditional_branch(branch_instr, mc->hw_ctx, true_addr, false_addr);
+            // Temporary: encode_conditional_branch still returns uint32_t
+            MCode branch_mcode = encode_conditional_branch(branch_instr, mc->hw_ctx, true_addr, false_addr);
             
             char label[128];
-            snprintf(label, sizeof(label), "branch -> block_%d, block_%d", 
+            snprintf(label, sizeof(label), "branch -> block_%d, block_%d",
                     true_target->id, false_target->id);
-            add_hotstate_instruction(mc, branch_word, label, block);
+            add_hotstate_instruction(mc, branch_mcode, label, block);
             mc->branches++;
+            printf("DEBUG: translate_control_flow: Added BRANCH MCode (jadr: %d, varSel: %d, branch: %d, var_or_timer: %d)\n",
+                   branch_mcode.jadr, branch_mcode.varSel, branch_mcode.branch, branch_mcode.var_or_timer);
             
             // Add unconditional jump for false case (next instruction)
-            uint32_t false_jump = encode_unconditional_jump(false_addr);
+            MCode false_jump_mcode = encode_unconditional_jump(false_addr);
+
             snprintf(label, sizeof(label), "false -> block_%d", false_target->id);
-            add_hotstate_instruction(mc, false_jump, label, block);
+            add_hotstate_instruction(mc, false_jump_mcode, label, block);
             mc->jumps++;
+            printf("DEBUG: translate_control_flow: Added FALSE JUMP MCode (jadr: %d, forced_jmp: %d)\n", false_jump_mcode.jadr, false_jump_mcode.forced_jmp);
         } else {
             // No explicit branch instruction - generate default behavior
             int target_addr = get_block_address(mc, true_target);
-            uint32_t jump_instr = encode_unconditional_jump(target_addr);
-            add_hotstate_instruction(mc, jump_instr, "default_jump", block);
+            MCode jump_mcode = encode_unconditional_jump(target_addr);
+            add_hotstate_instruction(mc, jump_mcode, "default_jump", block);
             mc->jumps++;
+            printf("DEBUG: translate_control_flow: Added DEFAULT JUMP MCode (jadr: %d, forced_jmp: %d)\n", jump_mcode.jadr, jump_mcode.forced_jmp);
         }
     }
 }
 
 // --- Instruction Encoding ---
 
-uint32_t encode_state_assignment(SSAInstruction* instr, HardwareContext* hw_ctx) {
-    uint32_t instruction = 0;
+MCode encode_state_assignment(SSAInstruction* instr, HardwareContext* hw_ctx) {
+    MCode mcode = {0}; // Initialize all fields to 0
     
     // Get the state bit to set
     int state_bit = get_state_bit_from_ssa_value(instr->dest, hw_ctx);
     if (state_bit >= 0) {
         // Set state and mask fields
-        instruction |= (1 << state_bit) << HOTSTATE_STATE_SHIFT;
-        instruction |= (1 << state_bit) << HOTSTATE_MASK_SHIFT;
+        mcode.state = (1 << state_bit);
+        mcode.mask = (1 << state_bit);
         
         // Set forced jump flag (continue to next instruction)
-        instruction |= HOTSTATE_FORCED_JMP;
+        mcode.forced_jmp = 1;
         
         // Jump address will be resolved later
-        instruction |= 0 << HOTSTATE_JADR_SHIFT;
+        mcode.jadr = 0;
     }
     
-    return instruction;
+    return mcode;
 }
 
-uint32_t encode_conditional_branch(SSAInstruction* instr, HardwareContext* hw_ctx, int true_addr, int false_addr) {
-    uint32_t instruction = 0;
+MCode encode_conditional_branch(SSAInstruction* instr, HardwareContext* hw_ctx, int true_addr, int false_addr) {
+    MCode mcode = {0}; // Initialize all fields to 0
     
     // Get input variable for condition
     int input_num = get_input_number_from_ssa_value(instr->data.branch_data.condition, hw_ctx);
     if (input_num >= 0) {
         // Set variable selection
-        instruction |= input_num << HOTSTATE_VARSEL_SHIFT;
+        mcode.varSel = input_num;
         
         // Set jump address (true branch)
-        instruction |= (true_addr & 0xF) << HOTSTATE_JADR_SHIFT;
+        mcode.jadr = (true_addr & 0xF);
         
         // Set branch and variable flags
-        instruction |= HOTSTATE_BRANCH_FLAG;
-        instruction |= HOTSTATE_VAR_TIMER;
+        mcode.branch = 1;
+        mcode.var_or_timer = 1;
     }
     
-    return instruction;
+    return mcode;
 }
 
-uint32_t encode_unconditional_jump(int target_addr) {
-    uint32_t instruction = 0;
+MCode encode_unconditional_jump(int target_addr) {
+    MCode mcode = {0}; // Initialize all fields to 0
     
     // Set jump address
-    instruction |= (target_addr & 0xF) << HOTSTATE_JADR_SHIFT;
+    mcode.jadr = (target_addr & 0xF);
     
     // Set forced jump flag
-    instruction |= HOTSTATE_FORCED_JMP;
+    mcode.forced_jmp = 1;
     
-    return instruction;
+    return mcode;
 }
 
-uint32_t encode_nop_instruction() {
+MCode encode_nop_instruction() {
+    MCode mcode = {0}; // Initialize all fields to 0
     // NOP: no state changes, no jumps, just continue
-    return HOTSTATE_FORCED_JMP; // Continue to next instruction
+    mcode.forced_jmp = 1; // Continue to next instruction
+    return mcode;
 }
 
 // --- SSA Analysis ---
@@ -292,10 +316,11 @@ void build_address_mapping(HotstateMicrocode* mc) {
 void resolve_jump_addresses(HotstateMicrocode* mc) {
     // Update jump addresses in generated instructions
     for (int i = 0; i < mc->instruction_count; i++) {
-        HotstateInstruction* instr = &mc->instructions[i];
+        Code* code_entry = &mc->instructions[i];
+        MCode* mcode = &code_entry->uword.mcode;
         
         // Check if this is a jump instruction that needs address resolution
-        if (instr->instruction_word & (HOTSTATE_BRANCH_FLAG | HOTSTATE_FORCED_JMP)) {
+        if (mcode->branch || mcode->forced_jmp) {
             // For now, addresses are already set during encoding
             // In a more sophisticated implementation, we would update them here
         }
@@ -311,24 +336,41 @@ int get_block_address(HotstateMicrocode* mc, BasicBlock* block) {
 
 // --- Instruction Management ---
 
-void add_hotstate_instruction(HotstateMicrocode* mc, uint32_t instruction_word, const char* label, BasicBlock* source_block) {
+void add_hotstate_instruction(HotstateMicrocode* mc, MCode mcode_val, const char* label, BasicBlock* source_block) {
     if (mc->instruction_count >= mc->instruction_capacity) {
         resize_instruction_array(mc);
     }
     
-    HotstateInstruction* instr = &mc->instructions[mc->instruction_count];
-    instr->instruction_word = instruction_word;
-    instr->label = label ? strdup(label) : NULL;
-    instr->address = mc->instruction_count;
-    instr->source_block = source_block;
+    Code* code_entry = &mc->instructions[mc->instruction_count];
+    code_entry->uword.mcode = mcode_val;
+    code_entry->level = 0; // Default level for now
+    code_entry->label = label ? strdup(label) : NULL;
+    // The address and source_block can be stored as metadata in Code struct if needed
+    // For now, we rely on the instruction_count as address.
     
     mc->instruction_count++;
+
+    // Update max_val fields for dynamic bit-width calculation
+    if (mcode_val.state > mc->max_state_val) mc->max_state_val = mcode_val.state;
+    if (mcode_val.mask > mc->max_mask_val) mc->max_mask_val = mcode_val.mask;
+    if (mcode_val.jadr > mc->max_jadr_val) mc->max_jadr_val = mcode_val.jadr;
+    if (mcode_val.varSel > mc->max_varsel_val) mc->max_varsel_val = mcode_val.varSel;
+    if (mcode_val.timerSel > mc->max_timersel_val) mc->max_timersel_val = mcode_val.timerSel;
+    if (mcode_val.timerLd > mc->max_timerld_val) mc->max_timerld_val = mcode_val.timerLd;
+    if (mcode_val.switch_sel > mc->max_switch_sel_val) mc->max_switch_sel_val = mcode_val.switch_sel;
+    if (mcode_val.switch_adr > mc->max_switch_adr_val) mc->max_switch_adr_val = mcode_val.switch_adr;
+    if (mcode_val.state_capture > mc->max_state_capture_val) mc->max_state_capture_val = mcode_val.state_capture;
+    if (mcode_val.var_or_timer > mc->max_var_or_timer_val) mc->max_var_or_timer_val = mcode_val.var_or_timer;
+    if (mcode_val.branch > mc->max_branch_val) mc->max_branch_val = mcode_val.branch;
+    if (mcode_val.forced_jmp > mc->max_forced_jmp_val) mc->max_forced_jmp_val = mcode_val.forced_jmp;
+    if (mcode_val.sub > mc->max_sub_val) mc->max_sub_val = mcode_val.sub;
+    if (mcode_val.rtn > mc->max_rtn_val) mc->max_rtn_val = mcode_val.rtn;
 }
 
 void resize_instruction_array(HotstateMicrocode* mc) {
     mc->instruction_capacity *= 2;
     mc->instructions = realloc(mc->instructions, 
-                              sizeof(HotstateInstruction) * mc->instruction_capacity);
+                              sizeof(Code) * mc->instruction_capacity);
 }
 
 // --- Helper Functions ---
@@ -371,9 +413,10 @@ HotstateMicrocode* create_hotstate_microcode(CFG* cfg, HardwareContext* hw_ctx) 
     return mc;
 }
 
-static void init_hotstate_microcode(HotstateMicrocode* mc, CFG* cfg, HardwareContext* hw_ctx) {
+void init_hotstate_microcode(HotstateMicrocode* mc, CFG* cfg, HardwareContext* hw_ctx) {
+    printf("DEBUG: cfg_to_microcode.c: init_hotstate_microcode: debug_mode = %d\n", debug_mode);
     mc->instruction_capacity = count_expected_instructions(cfg);
-    mc->instructions = malloc(sizeof(HotstateInstruction) * mc->instruction_capacity);
+    mc->instructions = malloc(sizeof(Code) * mc->instruction_capacity);
     mc->instruction_count = 0;
     
     mc->hw_ctx = hw_ctx;
@@ -386,6 +429,22 @@ static void init_hotstate_microcode(HotstateMicrocode* mc, CFG* cfg, HardwareCon
     mc->state_assignments = 0;
     mc->branches = 0;
     mc->jumps = 0;
+
+    // Initialize max_val fields to INT_MIN or 0 for single-bit flags
+    mc->max_state_val = INT_MIN;
+    mc->max_mask_val = INT_MIN;
+    mc->max_jadr_val = INT_MIN;
+    mc->max_varsel_val = INT_MIN;
+    mc->max_timersel_val = INT_MIN;
+    mc->max_timerld_val = INT_MIN;
+    mc->max_switch_sel_val = INT_MIN;
+    mc->max_switch_adr_val = INT_MIN;
+    mc->max_state_capture_val = INT_MIN;
+    mc->max_var_or_timer_val = INT_MIN;
+    mc->max_branch_val = INT_MIN;
+    mc->max_forced_jmp_val = INT_MIN;
+    mc->max_sub_val = INT_MIN;
+    mc->max_rtn_val = INT_MIN;
 }
 
 static int count_expected_instructions(CFG* cfg) {
@@ -426,9 +485,11 @@ bool validate_microcode(HotstateMicrocode* mc) {
 bool check_address_bounds(HotstateMicrocode* mc) {
     // Check that all jump addresses are within bounds
     for (int i = 0; i < mc->instruction_count; i++) {
-        uint32_t instr = mc->instructions[i].instruction_word;
-        if (instr & (HOTSTATE_BRANCH_FLAG | HOTSTATE_FORCED_JMP)) {
-            int addr = (instr & HOTSTATE_JADR_MASK) >> HOTSTATE_JADR_SHIFT;
+        MCode* mcode = &mc->instructions[i].uword.mcode;
+        if (mcode->branch || mcode->forced_jmp) {
+            // Need to calculate the actual jump address from MCode fields if it's dynamic
+            // For now, assuming jadr is the direct target address
+            int addr = mcode->jadr;
             if (addr >= mc->instruction_count) {
                 return false;
             }
@@ -440,9 +501,9 @@ bool check_address_bounds(HotstateMicrocode* mc) {
 bool check_variable_references(HotstateMicrocode* mc) {
     // Check that all variable references are valid
     for (int i = 0; i < mc->instruction_count; i++) {
-        uint32_t instr = mc->instructions[i].instruction_word;
-        if (instr & HOTSTATE_BRANCH_FLAG) {
-            int var_sel = (instr & HOTSTATE_VARSEL_MASK) >> HOTSTATE_VARSEL_SHIFT;
+        MCode* mcode = &mc->instructions[i].uword.mcode;
+        if (mcode->branch) {
+            int var_sel = mcode->varSel;
             if (var_sel >= mc->hw_ctx->input_count) {
                 return false;
             }

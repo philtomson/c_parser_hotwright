@@ -3,21 +3,14 @@
 
 #include "cfg.h"
 #include "hw_analyzer.h"
+#include "microcode_defs.h" // Include new microcode definitions
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdio.h>
 
-// Hotstate microcode instruction format
-typedef struct {
-    uint32_t instruction_word;  // Packed 24-bit hotstate instruction
-    char* label;               // Human-readable label for debugging
-    int address;               // Instruction address in microcode memory
-    BasicBlock* source_block;  // Reference to source CFG block
-} HotstateInstruction;
-
 // Complete microcode program
 typedef struct {
-    HotstateInstruction* instructions;
+    Code* instructions;
     int instruction_count;
     int instruction_capacity;
     
@@ -33,14 +26,31 @@ typedef struct {
     int state_assignments;     // Number of state assignment instructions
     int branches;             // Number of branch instructions
     int jumps;                // Number of jump instructions
+
+    // Dynamic bit-width tracking (from Phase 2)
+    int max_state_val;
+    int max_mask_val;
+    int max_jadr_val;
+    int max_varsel_val;
+    int max_timersel_val;
+    int max_timerld_val;
+    int max_switch_sel_val;
+    int max_switch_adr_val;
+    int max_state_capture_val;
+    int max_var_or_timer_val;
+    int max_branch_val;
+    int max_forced_jmp_val;
+    int max_sub_val;
+    int max_rtn_val;
 } HotstateMicrocode;
 
-// Hotstate instruction field definitions (extended jadr format)
-#define HOTSTATE_STATE_MASK     0x00F000  // Bits 12-15: State assignments
-#define HOTSTATE_MASK_MASK      0x000F00  // Bits 8-11:  State mask
-#define HOTSTATE_JADR_MASK      0x0000F0  // Bits 4-7:   Jump address (base 4 bits)
-#define HOTSTATE_JADR_EXT_MASK  0x00F000  // Extended jadr bits (reuse unused high bits)
-#define HOTSTATE_VARSEL_MASK    0x00000F  // Bits 0-3:   Variable selection
+// Hotstate instruction field definitions (these will become obsolete for direct MCode access)
+// Keeping them for now for compatibility during transition, but they should eventually be removed.
+#define HOTSTATE_STATE_MASK     0x00F000
+#define HOTSTATE_MASK_MASK      0x000F00
+#define HOTSTATE_JADR_MASK      0x0000F0
+#define HOTSTATE_JADR_EXT_MASK  0x00F000
+#define HOTSTATE_VARSEL_MASK    0x00000F
 
 #define HOTSTATE_STATE_SHIFT    12
 #define HOTSTATE_MASK_SHIFT     8
@@ -48,15 +58,13 @@ typedef struct {
 #define HOTSTATE_JADR_EXT_SHIFT 12
 #define HOTSTATE_VARSEL_SHIFT   0
 
-// Control flags (additional bits)
-#define HOTSTATE_BRANCH_FLAG    0x010000  // Bit 16: Branch enable
-#define HOTSTATE_FORCED_JMP     0x020000  // Bit 17: Forced jump
-#define HOTSTATE_STATE_CAP      0x040000  // Bit 18: State capture
-#define HOTSTATE_VAR_TIMER      0x080000  // Bit 19: Variable/timer select
+#define HOTSTATE_BRANCH_FLAG    0x010000
+#define HOTSTATE_FORCED_JMP     0x020000
+#define HOTSTATE_STATE_CAP      0x040000
+#define HOTSTATE_VAR_TIMER      0x080000
 
-// Switch fields (hotstate positions 8 and 9)
-#define HOTSTATE_SWITCH_SEL_MASK  0x00F00000  // Bits 20-23: Switch selection (switchsel)
-#define HOTSTATE_SWITCH_ADR_MASK  0x01000000  // Bit 24: Switch address flag (switchadr)
+#define HOTSTATE_SWITCH_SEL_MASK  0x00F00000
+#define HOTSTATE_SWITCH_ADR_MASK  0x01000000
 
 #define HOTSTATE_SWITCH_SEL_SHIFT 20
 #define HOTSTATE_SWITCH_ADR_SHIFT 24
@@ -78,10 +86,10 @@ void translate_instructions(HotstateMicrocode* mc, BasicBlock* block);
 void translate_control_flow(HotstateMicrocode* mc, BasicBlock* block);
 
 // Instruction encoding
-uint32_t encode_state_assignment(SSAInstruction* instr, HardwareContext* hw_ctx);
-uint32_t encode_conditional_branch(SSAInstruction* instr, HardwareContext* hw_ctx, int true_addr, int false_addr);
-uint32_t encode_unconditional_jump(int target_addr);
-uint32_t encode_nop_instruction();
+MCode encode_state_assignment(SSAInstruction* instr, HardwareContext* hw_ctx);
+MCode encode_conditional_branch(SSAInstruction* instr, HardwareContext* hw_ctx, int true_addr, int false_addr);
+MCode encode_unconditional_jump(int target_addr);
+MCode encode_nop_instruction();
 
 // SSA instruction translation
 bool is_state_assignment(SSAInstruction* instr, HardwareContext* hw_ctx);
@@ -95,20 +103,21 @@ void resolve_jump_addresses(HotstateMicrocode* mc);
 int get_block_address(HotstateMicrocode* mc, BasicBlock* block);
 
 // Instruction management
-void add_hotstate_instruction(HotstateMicrocode* mc, uint32_t instruction_word, const char* label, BasicBlock* source_block);
+void add_hotstate_instruction(HotstateMicrocode* mc, MCode mcode_val, const char* label, BasicBlock* source_block);
 void resize_instruction_array(HotstateMicrocode* mc);
 
 // --- Output Generation ---
 
 // Hotstate-compatible output
 void print_hotstate_microcode_table(HotstateMicrocode* mc, FILE* output);
-void print_microcode_header(FILE* output);
 void generate_smdata_mem_file(HotstateMicrocode* mc, const char* filename);
 void generate_vardata_mem_file(HotstateMicrocode* mc, const char* filename);
 
 // Debug output
 void print_microcode_analysis(HotstateMicrocode* mc, FILE* output);
-void print_instruction_details(HotstateInstruction* instr, FILE* output);
+// print_instruction_details will need to be updated to take MCode or Code directly
+// For now, removing the HotstateInstruction* version to avoid conflicts.
+// void print_instruction_details(Code* instr, FILE* output);
 void print_address_mapping(HotstateMicrocode* mc, FILE* output);
 
 // --- Memory Management ---
@@ -118,8 +127,6 @@ void free_hotstate_microcode(HotstateMicrocode* mc);
 
 // --- Output Generation Functions (from microcode_output.c) ---
 
-void print_state_assignments(HotstateMicrocode* mc, FILE* output);
-void print_variable_mappings(HotstateMicrocode* mc, FILE* output);
 char* generate_base_filename(const char* source_filename);
 void generate_all_output_files(HotstateMicrocode* mc, const char* source_filename);
 

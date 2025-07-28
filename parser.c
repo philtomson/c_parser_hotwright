@@ -737,12 +737,14 @@ void parser_destroy(Parser* parser) {
 // This is the public entry point. It parses a full program.
 Node* parse(Parser* parser) {
     ProgramNode* program = (ProgramNode*)create_program_node();
+    print_debug("DEBUG: Parsing program...\n");
     while (current_token(parser).type != TOKEN_EOF) {
         // Check if this is a function definition or global variable declaration
         if (current_token(parser).type == TOKEN_INT || current_token(parser).type == TOKEN_BOOL ||
             current_token(parser).type == TOKEN_CHAR || current_token(parser).type == TOKEN_UNSIGNED ||
             current_token(parser).type == TOKEN_VOID || current_token(parser).type == TOKEN_BITINT) {
             
+            print_debug("DEBUG: It's possibly a function def...\n");
             // Look ahead to see if this is a function (has parentheses) or variable
             Parser temp_parser = *parser;
             advance(&temp_parser); // skip type
@@ -772,12 +774,14 @@ Node* parse(Parser* parser) {
                     add_node_to_list(program->functions, parse_function_definition(parser));
                 } else {
                     // This is a global variable declaration
+                    //TODO: why would global var be added to program->functions list?
                     add_node_to_list(program->functions, parse_declaration_statement(parser));
                 }
             } else {
                 parser_error("Expected identifier after type");
             }
         } else {
+            print_debug("DEBUG: It's not a function def...\n");
             Token token = current_token(parser);
             char error_msg[512];
             
@@ -786,6 +790,7 @@ Node* parse(Parser* parser) {
                     "Preprocessor directives like '%s' are not supported. "
                     "Please use standard C declarations instead.", token.value);
             } else if (token.value && strcmp(token.value, "continue") == 0) {
+                //TODO: is it true that continue is not supported? Can gen dot file for programs with continue
                 snprintf(error_msg, sizeof(error_msg),
                     "'continue' statements are not supported. Use 'break' instead.");
             } else if (token.value && strcmp(token.value, "_Bool") == 0) {

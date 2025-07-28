@@ -1,7 +1,7 @@
 #include "microcode.h"
 #include <stdlib.h>
 #include <string.h>
-
+//TODO appears to not be used now
 // Create a new state machine
 StateMachine* create_state_machine(const char* function_name) {
     StateMachine* sm = malloc(sizeof(StateMachine));

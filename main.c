@@ -93,6 +93,7 @@ int main(int argc, char* argv[]) {
             generate_dot = true;
         } else if (strcmp(argv[i], "--debug") == 0) {
             debug_mode = 1;
+            printf("DEBUG: main.c: debug_mode set to %d\n", debug_mode); // Direct print for debugging
         } else if (strcmp(argv[i], "--hardware") == 0) {
             analyze_hardware = true;
         } else if (strcmp(argv[i], "--microcode") == 0) {
@@ -272,7 +273,7 @@ int main(int argc, char* argv[]) {
                                 HotstateMicrocode* microcode = cfg_to_hotstate_microcode(cfg, hw_ctx);
                                 if (microcode) {
                                     // Print microcode table
-                                    print_hotstate_microcode_table(microcode, stdout);
+                                    print_compact_microcode_table(microcode, stdout);
                                     
                                     // Print analysis
                                     print_microcode_analysis(microcode, stdout);
