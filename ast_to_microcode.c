@@ -366,11 +366,6 @@ static void process_function(CompactMicrocode* mc, FunctionDefNode* func) {
     add_compact_instruction(mc, &entry_mcode, "main(){");
     (*addr)++; // Increment address for main(){
     
-    // Add the implicit while(1) loop instruction
-    MCode while_mcode;
-    populate_mcode_instruction(mc, &while_mcode, 0, 0, mc->exit_address, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0); // jadr to exit, state_capture=1, branch=1
-    add_compact_instruction(mc, &while_mcode, "while (1) {");
-    (*addr)++; // Increment address for while (1){
     
     // Process function body
     if (func->body && func->body->type == NODE_BLOCK) {
