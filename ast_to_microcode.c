@@ -2,6 +2,7 @@
 #include "microcode_defs.h" // Explicitly include for Code struct definition
 #include "ast_to_microcode.h"
 #include "hw_analyzer.h"       // For HardwareContext and HardwareStateVar
+#include "lexer.h"             // For TOKEN_
 #include "cfg_to_microcode.h"  // For HotstateMicrocode and HOTSTATE_ macros
 #include <stdlib.h>
 #include <string.h>
@@ -389,6 +390,7 @@ static void process_function(CompactMicrocode* mc, FunctionDefNode* func) {
 // In ast_to_microcode.c (within process_statement function)
 static void process_statement(CompactMicrocode* mc, Node* stmt, int* addr) {
     if (!stmt) return;
+    fprintf(stderr, "DEBUG: process_statement called for type %d at addr %d\n", stmt->type, *addr);
     
     switch (stmt->type) {
         case NODE_WHILE: {
@@ -397,7 +399,7 @@ static void process_statement(CompactMicrocode* mc, Node* stmt, int* addr) {
             // Determine continue_target (address of the while loop header) and break_target (address after the loop)
             int while_loop_start_addr = *addr; 
             // Determine break_target (address after the entire while loop)
-            int estimated_break_target = *addr + count_statements(while_node);
+            int estimated_break_target = *addr + count_statements((Node*)while_node);
 
             // Create and push the loop context onto the stack
             LoopSwitchContext current_loop_context = {
@@ -412,7 +414,7 @@ static void process_statement(CompactMicrocode* mc, Node* stmt, int* addr) {
                 // process_expression(mc, while_node->condition, addr); // Condition handled directly by while instruction
                 condition_lable_str = create_condition_label(while_node->condition);
             } else {
-                condition_lable_str = create_condition_label("while (1) {");
+                condition_lable_str = strdup("true"); // Directly set label for while(1)
             }
             snprintf(while_full_label, sizeof(while_full_label), "while (%s) {", condition_lable_str);
             
@@ -469,7 +471,9 @@ static void process_statement(CompactMicrocode* mc, Node* stmt, int* addr) {
             
             MCode if_mcode;
             populate_mcode_instruction(mc, &if_mcode, 0, 0, jump_addr, ++gvarSel, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0);
-            add_compact_instruction(mc, &if_mcode, condition_label);
+            char if_full_label[256];
+            snprintf(if_full_label, sizeof(if_full_label), "if (%s) {", condition_label);
+            add_compact_instruction(mc, &if_mcode, if_full_label);
             mc->branch_instructions++;
             (*addr)++;
             
@@ -718,19 +722,82 @@ static void add_compact_instruction(CompactMicrocode* mc, MCode* mcode, const ch
 
 
 static char* create_condition_label(Node* condition) {
-    // For now, return hardcoded labels based on the expected conditions
-    // In a full implementation, this would parse the condition AST
-    static int condition_count = 0;
-    condition_count++;
-    
-    switch (condition_count) {
-        case 1: return strdup("if ((a0 == 0) && (a1 == 1)) {");
-        case 2: return strdup("if ((a1 == 0) || (a2 == 1) & !(a0)) {");
-        case 3: return strdup("if ((a0 == 1) && (a2 == 0)) {");
-        case 4: return strdup("if ((a0 == 0) && (a2 == 0) & !(a2)) {");
-        case 5: return strdup("if (!(a0)) {");
-        default: return strdup("if (condition) {");
+    char buffer[256]; // Use a stack-allocated buffer for intermediate string building
+    buffer[0] = '\0'; // Initialize buffer
+
+    if (!condition) {
+        return strdup("true"); // Default for empty condition (e.g., while(1))
     }
+
+    switch (condition->type) {
+        case NODE_BINARY_OP: {
+            BinaryOpNode* binop = (BinaryOpNode*)condition;
+            char* left_str = create_condition_label(binop->left);
+            char* right_str = create_condition_label(binop->right);
+
+            const char* op_str;
+            switch (binop->op) {
+                case TOKEN_AND: op_str = "&&"; break;
+                case TOKEN_OR:  op_str = "||"; break;
+                case TOKEN_EQUAL: op_str = "=="; break;
+                case TOKEN_NOT_EQUAL: op_str = "!="; break;
+                case TOKEN_LESS:  op_str = "<";  break;
+                case TOKEN_LESS_EQUAL:  op_str = "<="; break;
+                case TOKEN_GREATER:  op_str = ">";  break;
+                case TOKEN_GREATER_EQUAL:op_str = ">="; break;
+                case TOKEN_LOGICAL_AND: op_str = "&&"; break; // Added for completeness
+                case TOKEN_LOGICAL_OR: op_str = "||"; break;  // Added for completeness
+                default: op_str = "??"; break;
+            }
+            snprintf(buffer, sizeof(buffer), "(%s %s %s)", left_str, op_str, right_str);
+            free(left_str);
+            free(right_str);
+            break;
+        }
+        case NODE_UNARY_OP: {
+            UnaryOpNode* unop = (UnaryOpNode*)condition;
+            char* operand_str = create_condition_label(unop->operand);
+            const char* op_str;
+            switch (unop->op) {
+                case TOKEN_NOT: op_str = "!"; break;
+                default: op_str = "?"; break;
+            }
+            snprintf(buffer, sizeof(buffer), "%s(%s)", op_str, operand_str);
+            free(operand_str);
+            break;
+        }
+        case NODE_IDENTIFIER: {
+            IdentifierNode* ident = (IdentifierNode*)condition;
+            strncpy(buffer, ident->name, sizeof(buffer) - 1);
+            buffer[sizeof(buffer) - 1] = '\0'; // Ensure null-termination
+            break;
+        }
+        case NODE_NUMBER_LITERAL: {
+            NumberLiteralNode* num = (NumberLiteralNode*)condition;
+            strncpy(buffer, num->value, sizeof(buffer) - 1);
+            buffer[sizeof(buffer) - 1] = '\0'; // Ensure null-termination
+            break;
+        }
+        case NODE_ARRAY_ACCESS: { // Added for array access in conditions (e.g., a[0])
+            ArrayAccessNode* arr_access = (ArrayAccessNode*)condition;
+            char* array_name = create_condition_label(arr_access->array);
+            char* index_str = create_condition_label(arr_access->index);
+            snprintf(buffer, sizeof(buffer), "%s[%s]", array_name, index_str);
+            free(array_name);
+            free(index_str);
+            break;
+        }
+        default:
+            snprintf(buffer, sizeof(buffer), "unhandled_condition_type_%d", condition->type);
+            break;
+    }
+    
+    char* result_str = strdup(buffer); // Allocate memory for the final string to be returned
+    if (!result_str) {
+        perror("Failed to allocate memory for condition string");
+        return strdup("error");
+    }
+    return result_str;
 }
 
 static int calculate_jump_address(CompactMicrocode* mc, IfNode* if_node, int current_addr) {
@@ -800,6 +867,10 @@ static int estimate_statement_size(Node* stmt) {
                 } else {
                     size += 1; // For a single statement in then branch
                 }
+            } else {
+                // If then_branch is NULL, it still implicitly consumes an instruction for fall-through.
+                // This accounts for cases like 'if (cond) ; else { ... }'
+                size += 1;
             }
             if (if_node->else_branch) {
                 size += 1; // for else instruction
