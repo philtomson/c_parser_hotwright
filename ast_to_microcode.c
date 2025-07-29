@@ -417,7 +417,7 @@ static void process_statement(CompactMicrocode* mc, Node* stmt, int* addr) {
             // Generate the while loop header instruction (jumps to break_target if condition is false)
             MCode while_mcode;
             populate_mcode_instruction(mc, &while_mcode, 0, 0, current_loop_context.break_target, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0); // branch=1, state_capture=1, forced_jmp=0
-            add_compact_instruction(mc, &while_mcode, condition_lable_str);
+            add_compact_instruction(mc, &while_mcode, while_full_label);
             (*addr)++;
             
             free(condition_lable_str);  
