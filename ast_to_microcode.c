@@ -18,7 +18,6 @@ typedef struct {
 
 // Global variables for hotstate compatibility
 static int gSwitches = 0;
-static int gvarSel = 0;  // Global varSel counter like hotstate
 
 // Forward declarations
 static void process_function(CompactMicrocode* mc, FunctionDefNode* func);
@@ -58,7 +57,6 @@ static void process_switch_statement(CompactMicrocode* mc, SwitchNode* switch_no
 static void process_expression(CompactMicrocode* mc, Node* expr, int* addr);
 static void generate_expected_sequence(CompactMicrocode* mc, int* addr);
 static void process_for_loop(CompactMicrocode* mc, ForNode* for_node, int* addr);
-
 
 // Hotstate compatibility functions
 static int get_state_number_for_variable(const char* var_name, HardwareContext* hw_ctx);
@@ -123,7 +121,7 @@ static void populate_mcode_instruction(
     mcode_ptr->state = state;
     mcode_ptr->mask = mask;
     mcode_ptr->jadr = jadr;
-    fprintf(stderr, "DEBUG: populate_mcode_instruction: jadr received=%d, assigned=%d\n", jadr, mcode_ptr->jadr);
+    fprintf(stderr, "DEBUG: populate_mcode_instruction: jadr received=%d, assigned=%d, varSel received=%d\n", jadr, mcode_ptr->jadr, varSel);
     mcode_ptr->varSel = varSel;
     mcode_ptr->timerSel = timerSel;
     mcode_ptr->timerLd = timerLd;
@@ -157,7 +155,6 @@ CompactMicrocode* ast_to_compact_microcode(Node* ast_root, HardwareContext* hw_c
     // Initialize global counters like hotstate
     // TODO: eliminate globals by moving to CompactMicrocode!
     gSwitches = 0; //TODO: mc->switch_count
-    gvarSel = 0;   //TODO: add mc->varSel field
     
     CompactMicrocode* mc = malloc(sizeof(CompactMicrocode));
     mc->instructions = (Code*)malloc(sizeof(mc->instructions[0]) * 32);
@@ -180,6 +177,7 @@ CompactMicrocode* ast_to_compact_microcode(Node* ast_root, HardwareContext* hw_c
     mc->jump_instructions = 0;
     mc->max_jadr_val = 0;
     mc->max_varsel_val = 0;
+    mc->var_sel_counter = 0; // Initialize to 0 to match hotstate behavior
     mc->max_state_val = 0;
     
     ProgramNode* program = (ProgramNode*)ast_root;
@@ -416,7 +414,8 @@ static void process_statement(CompactMicrocode* mc, Node* stmt, int* addr) {
             
             // Generate the while loop header instruction (jumps to break_target if condition is false)
             MCode while_mcode;
-            populate_mcode_instruction(mc, &while_mcode, 0, 0, current_loop_context.break_target, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0); // branch=1, state_capture=1, forced_jmp=0
+            populate_mcode_instruction(mc, &while_mcode, 0, 0, current_loop_context.break_target, mc->var_sel_counter++, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0); // branch=1, state_capture=1, forced_jmp=0
+            fprintf(stderr, "DEBUG: while_mcode.varSel after populate: %d\n", while_mcode.varSel);
             add_compact_instruction(mc, &while_mcode, while_full_label);
             (*addr)++;
             
@@ -465,7 +464,8 @@ static void process_statement(CompactMicrocode* mc, Node* stmt, int* addr) {
             int jump_addr = calculate_jump_address(mc, if_node, *addr);
             
             MCode if_mcode;
-            populate_mcode_instruction(mc, &if_mcode, 0, 0, jump_addr, ++gvarSel, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0);
+            populate_mcode_instruction(mc, &if_mcode, 0, 0, jump_addr, mc->var_sel_counter++, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0);
+            fprintf(stderr, "DEBUG: if_mcode.varSel after populate: %d\n", if_mcode.varSel);
             char if_full_label[256];
             snprintf(if_full_label, sizeof(if_full_label), "if (%s) {", condition_label);
             add_compact_instruction(mc, &if_mcode, if_full_label);
@@ -483,7 +483,7 @@ static void process_statement(CompactMicrocode* mc, Node* stmt, int* addr) {
                 // Calculate the jump address for the else (should jump past the entire if-else chain)
                 int else_jump_addr = calculate_else_jump_address(mc, if_node, *addr);
                 MCode else_mcode;
-                populate_mcode_instruction(mc, &else_mcode, 0, 0, else_jump_addr, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0);
+                populate_mcode_instruction(mc, &else_mcode, 0, 0, else_jump_addr, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0);
                 add_compact_instruction(mc, &else_mcode, "else");
                 mc->jump_instructions++;
                 (*addr)++;
@@ -1131,7 +1131,7 @@ void print_compact_microcode_table(CompactMicrocode* mc, FILE* output) {
         uint32_t state = mcode->state;
         uint32_t mask = mcode->mask;
         uint32_t jadr = mcode->jadr;
-        uint32_t varsel = mcode->varSel;
+        uint32_t varsel = code_entry->uword.value[3]; // Direct access to varSel field
         uint32_t timer_sel = mcode->timerSel;
         uint32_t timer_ld = mcode->timerLd;
         uint32_t switch_sel = mcode->switch_sel;
@@ -1299,6 +1299,7 @@ static int get_state_number_for_variable(const char* var_name, HardwareContext* 
     
     return -1;  // Not a state variable
 }
+
 
 // Calculate hotstate-compatible state and mask fields for assignments
 static void calculate_hotstate_fields(AssignmentNode* assign, HardwareContext* hw_ctx, int* state_out, int* mask_out) {

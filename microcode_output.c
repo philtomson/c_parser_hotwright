@@ -48,7 +48,7 @@ void print_hotstate_microcode_table(HotstateMicrocode* mc, FILE* output) {
             state & 0xF,        // State assignments
             mask & 0xF,         // Mask
             jadr & 0xF,         // Jump address
-            varsel & 0xF,       // Variable selection
+            varsel,             // Variable selection
             timer_sel & 0xF,    // Timer selection (new)
             timer_ld & 0x1,     // Timer load (new)
             switch_sel & 0xF,   // Switch selection

@@ -42,6 +42,7 @@ typedef struct {
     int max_jadr_val;
     int max_varsel_val;
     int max_state_val;
+    int var_sel_counter; // Counter for varSel values
 } CompactMicrocode;
 
 // Main generation function
