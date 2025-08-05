@@ -360,7 +360,7 @@ static void process_function(CompactMicrocode* mc, FunctionDefNode* func) {
     
     // Use calculated state and mask. Mask should be 7 for 3 state variables.
     MCode entry_mcode;
-    populate_mcode_instruction(mc, &entry_mcode, 4, 7, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0); // state set to 4, mask to 7, state_capture to 1
+    populate_mcode_instruction(mc, &entry_mcode, 4, 7, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0); // state set to 4, mask to 7, switch_sel to 0, state_capture to 1
     add_compact_instruction(mc, &entry_mcode, "main(){");
     (*addr)++; // Increment address for main(){
     
@@ -1118,9 +1118,105 @@ static void print_variable_mappings(CompactMicrocode* mc, FILE* output) {
 // Implementation of print_compact_microcode_table (Hotstate-compatible format)
 void print_compact_microcode_table(CompactMicrocode* mc, FILE* output) {
     fprintf(output, "\nState Machine Microcode derived from %s\n\n", mc->function_name);
+    int numStates = mc->hw_ctx->state_count;
+    int numVarSels = mc->hw_ctx->input_count;
+    int numVars = mc->hw_ctx->input_count; //TODO: should numVars and numVarSels be the same?
+    int gTimers = mc->timer_count; //TODO possibly timer_count and switch_count should be
+                                   // moved to the hw_ctx ?
+    int gSwitches = mc->switch_count;
+
+
+    int statenibs = (numStates > 0) ? (numStates + 3) / 4 : 1;
+    int varSel_bits = 0;
+    if (numVarSels > 1) {
+        unsigned int temp = numVarSels - 1;
+        while (temp > 0) {
+            temp >>= 1;
+            varSel_bits++;
+        }
+    } else {
+        varSel_bits = 1;
+    }
+    int varSel_nibs = (varSel_bits > 0) ? (varSel_bits + 3) / 4 : 1;
+
+    int timer_bits = 0;
+    if (gTimers > 1) {
+        unsigned int temp = gTimers - 1;
+        while (temp > 0) {
+            temp >>= 1;
+            timer_bits++;
+        }
+    } else {
+        timer_bits = 1;
+    }
+    int timer_nibs = (timer_bits > 0) ? (timer_bits + 3) / 4 : 1;
+
+    int switch_bits = 0;
+    if (gSwitches > 1) {
+        unsigned int temp = gSwitches - 1;
+        while (temp > 0) {
+            temp >>= 1;
+            switch_bits++;
+        }
+    } else {
+        switch_bits = 1;
+    }
+    int switch_nibs = (switch_bits > 0) ? (switch_bits + 3) / 4 : 1;
+    int gAddrnibs = (((log10(mc->instruction_count)/log10(2))) + 1)/4;
     
     // Print the header (matching hotstate format)
-    print_microcode_header(output);
+    ColumnFormat columns[] = {
+        {"address",   gAddrnibs, 1},
+        {"state",     statenibs, 1},
+        {"mask",      statenibs, 1},
+        {"jadr",      gAddrnibs, 1},
+        {"varSel",    varSel_nibs, numVars > 0},
+        {"timSel",    timer_nibs, gTimers > 0},
+        {"timLd",     timer_nibs, gTimers > 0},
+        {"switchSel", switch_nibs, gSwitches > 0},
+        {"sswitchAdr", 1, gSwitches > 0},
+        {"stateCap", 1, 1},
+        {"tim/var",  1, numVars > 0 || gTimers > 0},
+        {"branch",   1, 1},
+        {"forcejmp",  1, 1},
+        {"sub",  1, 1},
+        {"rtn",  1, 1}
+    };
+    int num_columns = sizeof(columns) / sizeof(columns[0]);
+    int max_header_len = 0;
+    for (int i = 0; i < num_columns; i++) {
+        int len = strlen(columns[i].header);
+        if (len > max_header_len) {
+            max_header_len = len;
+        }
+    }
+    // Print header columns (bottom-aligned)
+    for (int i = 0; i < max_header_len; i++) {
+       for (int j = 0; j < num_columns; j++) {
+           
+           char header_char = ' ';
+           int header_len = strlen(columns[j].header);
+           
+           // Calculate which character to print (bottom-aligned)
+           int char_index = i - (max_header_len - header_len);
+           
+           if (char_index >= 0 && char_index < header_len) {
+               header_char = columns[j].header[char_index];
+           }
+           
+           printf("%-*c ", columns[j].width, header_char);
+       }
+       printf("\n");
+    }
+
+    // print separator "-----...----"
+    for (int i = 0; i < num_columns; i++) {
+        for (int j = 0; j < columns[i].width + 1; j++) {
+            printf("-");
+        }
+    }
+    printf("-\n");
+
     
     // Print each instruction in hotstate format
     for (int i = 0; i < mc->instruction_count; i++) {
