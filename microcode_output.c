@@ -1,6 +1,7 @@
 #define _GNU_SOURCE  // For strdup
 #include "cfg_to_microcode.h"
 #include "microcode_defs.h" // Include new microcode definitions
+#include "ast_to_microcode.h" // Include CompactMicrocode definition
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -11,10 +12,10 @@ extern int debug_mode; // Declare debug_mode as external
 // Forward declarations for local functions (will be moved to header later)
 static int calculate_bit_width(int max_val);
 static uint64_t pack_mcode_instruction(MCode* mcode, HotstateMicrocode* mc);
-static void generate_microcode_params_vh(HotstateMicrocode* mc, const char* filename);
+static void generate_microcode_params_vh(CompactMicrocode* mc, const char* filename);
 
 // --- Hotstate-Compatible Output Generation ---
-
+/*
 void print_hotstate_microcode_table(HotstateMicrocode* mc, FILE* output) {
     fprintf(output, "\nState Machine Microcode derived from %s\n\n", mc->function_name);
     
@@ -30,6 +31,7 @@ void print_hotstate_microcode_table(HotstateMicrocode* mc, FILE* output) {
         uint32_t state = mcode->state;
         uint32_t mask = mcode->mask;
         uint32_t jadr = mcode->jadr;
+        fprintf(stderr, "DEBUG: print_hotstate_microcode_table: Reading jadr=%d at index %d\n", jadr, i);
         uint32_t varsel = mcode->varSel;
         uint32_t timer_sel = mcode->timerSel;
         uint32_t timer_ld = mcode->timerLd;
@@ -45,14 +47,14 @@ void print_hotstate_microcode_table(HotstateMicrocode* mc, FILE* output) {
         // Print in hotstate format: addr state mask jadr varsel unused1 unused2 switchsel switchadr flags
         fprintf(output, "%x %x %x %x %x %x %x %x %x %x %x %x %x %x %x   %s\n",
             i,                  // Address (hex)
-            state & 0xF,        // State assignments
-            mask & 0xF,         // Mask
-            jadr & 0xF,         // Jump address
+            state,        // State assignments
+            mask,         // Mask
+            jadr,         // Jump address
             varsel,             // Variable selection
-            timer_sel & 0xF,    // Timer selection (new)
-            timer_ld & 0x1,     // Timer load (new)
-            switch_sel & 0xF,   // Switch selection
-            switch_adr & 0x1,   // Switch address flag
+            timer_sel,    // Timer selection (new)
+            timer_ld,     // Timer load (new)
+            switch_sel,   // Switch selection
+            switch_adr,   // Switch address flag
             state_cap,          // State capture
             var_timer,          // Var or timer
             branch,             // Branch
@@ -67,7 +69,7 @@ void print_hotstate_microcode_table(HotstateMicrocode* mc, FILE* output) {
     // Print state and variable assignments
     print_state_assignments(mc, output);
     print_variable_mappings(mc, output);
-}
+} */
 
 // Helper function to calculate minimum bit-width for a given maximum value
 static int calculate_bit_width(int max_val) {
@@ -163,7 +165,7 @@ static uint64_t pack_mcode_instruction(MCode* mcode, HotstateMicrocode* mc) {
 }
 
 // Function to generate the microcode_params.vh file
-static void generate_microcode_params_vh(HotstateMicrocode* mc, const char* filename) {
+static void generate_microcode_params_vh(CompactMicrocode* mc, const char* filename) {
     FILE* file = fopen(filename, "w");
     if (!file) {
         fprintf(stderr, "Error: Cannot create file '%s'\n", filename);
@@ -202,7 +204,7 @@ static void generate_microcode_params_vh(HotstateMicrocode* mc, const char* file
 
 // --- Memory File Generation ---
 
-void generate_smdata_mem_file(HotstateMicrocode* mc, const char* filename) {
+void generate_smdata_mem_file(CompactMicrocode* mc, const char* filename) {
     FILE* file = fopen(filename, "w");
     if (!file) {
         fprintf(stderr, "Error: Cannot create file '%s'\n", filename);
@@ -275,7 +277,7 @@ void print_variable_mappings(HotstateMicrocode* mc, FILE* output) {
 
 //TODO: this needs to be filled in with actual vardata
 //TODO: actuall vadata needs to be created somewhere
-void generate_vardata_mem_file(HotstateMicrocode* mc, const char* filename) {
+void generate_vardata_mem_file(CompactMicrocode* mc, const char* filename) {
     FILE* file = fopen(filename, "w");
     if (!file) {
         fprintf(stderr, "Error: Cannot create file '%s'\n", filename);

@@ -258,7 +258,7 @@ int main(int argc, char* argv[]) {
                         } else {
                             printf("\n--- Generating SSA-Based Microcode ---\n");
                         }
-                        {
+                        { /* this seems completely wrong
                             // Build CFG for SSA-based generation
                             CFG* cfg = build_cfg_from_ast(ast_root);
                             if (!cfg) {
@@ -269,8 +269,7 @@ int main(int argc, char* argv[]) {
                                     cfg = optimize_ssa_cfg(cfg, hw_ctx);
                                 }
                                 
-                                // Generate SSA-based microcode
-                                HotstateMicrocode* microcode = cfg_to_hotstate_microcode(cfg, hw_ctx);
+                                CompactMicrocode* microcode = cfg_to_compact_microcode(cfg, hw_ctx);
                                 if (microcode) {
                                     // Print microcode table
                                     print_compact_microcode_table(microcode, stdout);
@@ -283,7 +282,7 @@ int main(int argc, char* argv[]) {
                                         generate_all_output_files(microcode, input_filename);
                                     }
                                     
-                                    free_hotstate_microcode(microcode);
+                                    free_compact_microcode(microcode);
                                 } else {
                                     if (optimize_ssa) {
                                         printf("Error: Failed to generate optimized SSA-based microcode\n");
@@ -294,6 +293,7 @@ int main(int argc, char* argv[]) {
                                 
                                 free_cfg(cfg);
                             }
+                        */
                         }
                         break;
                         

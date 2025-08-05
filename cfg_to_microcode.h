@@ -3,6 +3,7 @@
 
 #include "cfg.h"
 #include "hw_analyzer.h"
+#include "ast_to_microcode.h"
 #include "microcode_defs.h" // Include new microcode definitions
 #include <stdint.h>
 #include <stdbool.h>
@@ -109,9 +110,9 @@ void resize_instruction_array(HotstateMicrocode* mc);
 // --- Output Generation ---
 
 // Hotstate-compatible output
-void print_hotstate_microcode_table(HotstateMicrocode* mc, FILE* output);
-void generate_smdata_mem_file(HotstateMicrocode* mc, const char* filename);
-void generate_vardata_mem_file(HotstateMicrocode* mc, const char* filename);
+// void print_hotstate_microcode_table(CompactMicrocode* mc, FILE* output); // Moved to ast_to_microcode.h
+void generate_smdata_mem_file(CompactMicrocode* mc, const char* filename);
+void generate_vardata_mem_file(CompactMicrocode* mc, const char* filename);
 
 // Debug output
 void print_microcode_analysis(HotstateMicrocode* mc, FILE* output);

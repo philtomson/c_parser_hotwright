@@ -1,6 +1,7 @@
 #define _GNU_SOURCE  // For strdup
 #include "cfg_to_microcode.h"
 #include "microcode_defs.h" // Include new microcode definitions
+#include "ast_to_microcode.h" // Include CompactMicrocode definition
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>

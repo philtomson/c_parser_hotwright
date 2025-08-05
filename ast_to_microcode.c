@@ -157,6 +157,39 @@ static void populate_mcode_instruction(
         mc->max_state_val = state;
     }
     // Add similar updates for other fields that need dynamic sizing as they become relevant
+    if (mask > mc->max_mask_val) {
+        mc->max_mask_val = mask;
+    }
+    if (timerSel > mc->max_timersel_val) {
+        mc->max_timersel_val = timerSel;
+    }
+    if (timerLd > mc->max_timerld_val) {
+        mc->max_timerld_val = timerLd;
+    }
+    if (switch_sel > mc->max_switch_sel_val) {
+        mc->max_switch_sel_val = switch_sel;
+    }
+    if (switch_adr > mc->max_switch_adr_val) {
+        mc->max_switch_adr_val = switch_adr;
+    }
+    if (state_capture > mc->max_state_capture_val) {
+        mc->max_state_capture_val = state_capture;
+    }
+    if (var_or_timer > mc->max_var_or_timer_val) {
+        mc->max_var_or_timer_val = var_or_timer;
+    }
+    if (branch > mc->max_branch_val) {
+        mc->max_branch_val = branch;
+    }
+    if (forced_jmp > mc->max_forced_jmp_val) {
+        mc->max_forced_jmp_val = forced_jmp;
+    }
+    if (sub > mc->max_sub_val) {
+        mc->max_sub_val = sub;
+    }
+    if (rtn > mc->max_rtn_val) {
+        mc->max_rtn_val = rtn;
+    }
 }
 
 CompactMicrocode* ast_to_compact_microcode(Node* ast_root, HardwareContext* hw_ctx) {
@@ -191,6 +224,17 @@ CompactMicrocode* ast_to_compact_microcode(Node* ast_root, HardwareContext* hw_c
     mc->max_varsel_val = 0;
     mc->var_sel_counter = 0; // Initialize to 0 to match hotstate behavior
     mc->max_state_val = 0;
+    mc->max_mask_val = 0; // Initialize new fields
+    mc->max_timersel_val = 0;
+    mc->max_timerld_val = 0;
+    mc->max_switch_sel_val = 0;
+    mc->max_switch_adr_val = 0;
+    mc->max_state_capture_val = 0;
+    mc->max_var_or_timer_val = 0;
+    mc->max_branch_val = 0;
+    mc->max_forced_jmp_val = 0;
+    mc->max_sub_val = 0;
+    mc->max_rtn_val = 0;
 
     // Initialize loop/switch stack
     mc->stack_ptr = 0;
@@ -228,10 +272,13 @@ static int count_statements(Node* stmt);
 static int count_statements(Node* stmt) {
     if (!stmt) return 0;
     
+    int count = 0; // Initialize count to 0
+    fprintf(stderr, "DEBUG: count_statements: Node type %d\n", stmt->type);
+
     switch (stmt->type) {
         case NODE_WHILE: {
             WhileNode* while_node = (WhileNode*)stmt;
-            int count = 1; // while header
+            count = 1; // while header
             
             // Count body statements
             if (while_node->body) {
@@ -248,12 +295,12 @@ static int count_statements(Node* stmt) {
             }
             
             count++; // closing brace jump
-            return count;
+            break; // Use break instead of return here
         }
         
         case NODE_IF: {
             IfNode* if_node = (IfNode*)stmt;
-            int count = 1; // if condition
+            count = 1; // if condition
             
             // Count then body
             if (if_node->then_branch) {
@@ -284,18 +331,18 @@ static int count_statements(Node* stmt) {
                 }
             }
             
-            return count;
+            break; // Use break instead of return here
         }
         
         case NODE_SWITCH: {
             SwitchNode* switch_node = (SwitchNode*)stmt;
-            int count = 2; // switch header + load instruction
+            count = 1; // switch header
             
             // Count case statements
             if (switch_node->cases) {
                 for (int i = 0; i < switch_node->cases->count; i++) {
                     CaseNode* case_node = (CaseNode*)switch_node->cases->items[i];
-                    count++; // case label
+                    // count++; // case label - removed to match hotstate instruction count
                     
                     // Count case body statements
                     if (case_node->body) {
@@ -305,31 +352,32 @@ static int count_statements(Node* stmt) {
                     }
                 }
             }
-            
-            return count;
+            break; // Use break instead of return here
         }
         
         case NODE_ASSIGNMENT:
         case NODE_EXPRESSION_STATEMENT:
-            return 1;
+            count = 1;
+            break;
             
         case NODE_BREAK:
         case NODE_CONTINUE:
-            return 1; // Break and continue generate jump instructions
+            count = 1; // Break and continue generate jump instructions
+            break;
             
         case NODE_BLOCK: {
             BlockNode* block = (BlockNode*)stmt;
-            int count = 0;
+            count = 0;
             if (block->statements) {
                 for (int i = 0; i < block->statements->count; i++) {
                     count += count_statements(block->statements->items[i]);
                 }
             }
-            return count;
+            break; // Use break instead of return here
         }
         case NODE_FOR: {
             ForNode* for_node = (ForNode*)stmt;
-            int count = 0;
+            count = 0;
             // Initializer
             if (for_node->init) {
                 count += count_statements(for_node->init);
@@ -346,11 +394,14 @@ static int count_statements(Node* stmt) {
             }
             // Jump back to header
             count += 1; // For the unconditional jump back to the loop header
-            return count;
+            break; // Use break instead of return here
         }
         default:
-            return 1; // Default to 1 instruction
+            count = 1; // Default to 1 instruction
+            break; // Use break instead of return here
     }
+    fprintf(stderr, "DEBUG: count_statements: Node type %d, count=%d\n", stmt->type, count);
+    return count;
 }
 
 static void process_function(CompactMicrocode* mc, FunctionDefNode* func) {
@@ -401,6 +452,7 @@ static void process_function(CompactMicrocode* mc, FunctionDefNode* func) {
     MCode exit_mcode;
     populate_mcode_instruction(mc, &exit_mcode, 0, 0, exit_addr, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0);
     add_compact_instruction(mc, &exit_mcode, ":exit");
+    fprintf(stderr, "DEBUG: process_function: mc->exit_address = %d\n", mc->exit_address);
 }
 
 
@@ -422,7 +474,7 @@ static void process_statement(CompactMicrocode* mc, Node* stmt, int* addr) {
             LoopSwitchContext current_loop_context = {
                 .loop_type = NODE_WHILE,
                 .continue_target = while_loop_start_addr,
-                .break_target = estimated_break_target
+                .break_target = mc->exit_address // For while(1) this means jump to exit
             };
             push_context(mc, current_loop_context);
             char* condition_lable_str = NULL;
@@ -440,6 +492,7 @@ static void process_statement(CompactMicrocode* mc, Node* stmt, int* addr) {
             MCode while_mcode;
             populate_mcode_instruction(mc, &while_mcode, 0, 0, current_loop_context.break_target, mc->var_sel_counter++, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0); // branch=1, state_capture=1, forced_jmp=0
             fprintf(stderr, "DEBUG: while_mcode.varSel after populate: %d\n", while_mcode.varSel);
+            fprintf(stderr, "DEBUG: Before add_compact_instruction: while_mcode.jadr = %d\n", while_mcode.jadr);
             add_compact_instruction(mc, &while_mcode, while_full_label);
             (*addr)++;
             
@@ -620,12 +673,21 @@ static void process_switch_statement(CompactMicrocode* mc, SwitchNode* switch_no
         return;
     }
     
-    // Generate switch expression evaluation
-    process_expression(mc, switch_node->expression, addr);
-    
+    int switch_expression_input_num = 0; // Default to 0 or an error value
+    if (switch_node->expression->type == NODE_IDENTIFIER) {
+        IdentifierNode* ident = (IdentifierNode*)switch_node->expression;
+        switch_expression_input_num = get_input_number_by_name(mc->hw_ctx, ident->name);
+        // Handle case where input_number is -1 (not found) if necessary
+    } else {
+        // Handle other expression types if needed, or error out
+        fprintf(stderr, "Error: Switch expression is not an identifier. Type: %d\n", switch_node->expression->type);
+        return;
+    }
+
     // Generate switch instruction with proper hotstate fields
     MCode switch_mcode;
-    populate_mcode_instruction(mc, &switch_mcode, 0, 0, 0, 0, 0, 0, switch_id, 1, 0, 0, 0, 0, 0, 0); // switchadr=1, switchsel=switch_id
+    // Pass switch_expression_input_num as switch_adr
+    populate_mcode_instruction(mc, &switch_mcode, 0, 0, 0, 0, 0, 0, switch_id, 1, 0, 0, 0, 0, 0, 0);
     add_switch_instruction(mc, &switch_mcode, "SWITCH", switch_id);
     (*addr)++;
     
@@ -650,7 +712,7 @@ static void process_switch_statement(CompactMicrocode* mc, SwitchNode* switch_no
         MCode case_mcode;
         populate_mcode_instruction(mc, &case_mcode, 0, 0, 0, 0, 0, 0, switch_id, 0, 0, 0, 0, 0, 0, 0); // Assuming switch_id for switch_sel
         add_case_instruction(mc, &case_mcode, case_label, switch_id);
-        (*addr)++;
+        // (*addr)++; // Removed to not increment address for CASE labels
         
         // Process case statements
         if (case_node->body) {
@@ -661,6 +723,10 @@ static void process_switch_statement(CompactMicrocode* mc, SwitchNode* switch_no
     }
     
     // Note: Default case is handled as a CaseNode with value=NULL in the cases list above
+    MCode end_switch_mcode;
+    populate_mcode_instruction(mc, &end_switch_mcode, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+    add_compact_instruction(mc, &end_switch_mcode, "}}");
+    (*addr)++;
 }
 
 
@@ -905,6 +971,7 @@ static int estimate_statement_size(Node* stmt) {
                     size += 1; // For a single statement in else branch
                 }
             }
+            size += 1; // for the closing "}}" instruction
             break;
         }
         case NODE_WHILE: {
@@ -1296,7 +1363,14 @@ void print_compact_microcode_table(CompactMicrocode* mc, FILE* output) {
 void print_compact_microcode_analysis(CompactMicrocode* mc, FILE* output) {
     fprintf(output, "\n=== Compact Microcode Analysis ===\n");
     fprintf(output, "Function: %s\n", mc->function_name);
-    fprintf(output, "Total instructions: %d\n", mc->instruction_count);
+    int hotstate_instruction_count = 0;
+    for (int i = 0; i < mc->instruction_count; i++) {
+        const char* label = mc->instructions[i].label;
+        if (!(strcmp(label, "}}") == 0 || strcmp(label, "}") == 0 || strncmp(label, "CASE_", 5) == 0 || strcmp(label, "DEFAULT_CASE") == 0)) {
+            hotstate_instruction_count++;
+        }
+    }
+    fprintf(output, "Total instructions: %d\n", hotstate_instruction_count);
     fprintf(output, "State assignments: %d\n", mc->state_assignments);
     fprintf(output, "Branch instructions: %d\n", mc->branch_instructions);
     fprintf(output, "Jump instructions: %d\n", mc->jump_instructions);

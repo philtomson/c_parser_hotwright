@@ -47,6 +47,17 @@ typedef struct {
     int max_jadr_val;
     int max_varsel_val;
     int max_state_val;
+    int max_mask_val; // Added for compatibility with HotstateMicrocode
+    int max_timersel_val; // Added for compatibility with HotstateMicrocode
+    int max_timerld_val; // Added for compatibility with HotstateMicrocode
+    int max_switch_sel_val; // Added for compatibility with HotstateMicrocode
+    int max_switch_adr_val; // Added for compatibility with HotstateMicrocode
+    int max_state_capture_val; // Added for compatibility with HotstateMicrocode
+    int max_var_or_timer_val; // Added for compatibility with HotstateMicrocode
+    int max_branch_val; // Added for compatibility with HotstateMicrocode
+    int max_forced_jmp_val; // Added for compatibility with HotstateMicrocode
+    int max_sub_val; // Added for compatibility with HotstateMicrocode
+    int max_rtn_val; // Added for compatibility with HotstateMicrocode
     int var_sel_counter; // Counter for varSel values
 } CompactMicrocode;
 
@@ -56,6 +67,7 @@ CompactMicrocode* ast_to_compact_microcode(Node* ast_root, HardwareContext* hw_c
 // Output functions
 void print_compact_microcode_table(CompactMicrocode* mc, FILE* output);
 void print_compact_microcode_analysis(CompactMicrocode* mc, FILE* output);
+//void print_hotstate_microcode_table(HotstateMicrocode* mc, FILE* output); // Moved from cfg_to_microcode.h
 
 // Memory management
 void free_compact_microcode(CompactMicrocode* mc);
