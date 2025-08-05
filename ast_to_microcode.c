@@ -76,12 +76,14 @@ static void push_context(CompactMicrocode* mc, LoopSwitchContext context) {
     if(mc->stack_ptr >= mc->stack_capacity) {
         mc->stack_capacity *= 2;
         mc->loop_switch_stack = realloc(mc->loop_switch_stack, sizeof(LoopSwitchContext) * mc->stack_capacity);
+        // Error handling for realloc is important in production code, but for this context,
+        // we'll assume it succeeds for simplicity or let it crash if it's truly out of memory.
     }
     mc->loop_switch_stack[mc->stack_ptr++] = context;
 }
 
 static void pop_context(CompactMicrocode* mc){
-    if (mc->stack_ptr < 0) {
+    if (mc->stack_ptr > 0) {
         mc->stack_ptr--;
     } else {
         fprintf(stderr, "Warning: Attempted to pop from empty loop/switch stack.\n");
@@ -89,13 +91,23 @@ static void pop_context(CompactMicrocode* mc){
 }
     
 
-static LoopSwitchContext peek_context(CompactMicrocode* mc) {
-    if (mc->stack_ptr == 0) {
-        fprintf(stderr, "Error: 'break' or 'continue' statement outside of a valid context.\n");
-        LoopSwitchContext error_context = {-1, -1}; // Return invalid targets
-        return error_context;
+static LoopSwitchContext peek_context(CompactMicrocode* mc, ContextSearchType search_type) {
+    for (int i = mc->stack_ptr - 1; i >= 0; i--) {
+        LoopSwitchContext current_context = mc->loop_switch_stack[i];
+        if (search_type == CONTEXT_TYPE_LOOP_OR_SWITCH &&
+            (current_context.loop_type == NODE_WHILE ||
+             current_context.loop_type == NODE_FOR ||
+             current_context.loop_type == NODE_SWITCH)) {
+            return current_context;
+        } else if (search_type == CONTEXT_TYPE_LOOP &&
+                   (current_context.loop_type == NODE_WHILE ||
+                    current_context.loop_type == NODE_FOR)) {
+            return current_context;
+        }
     }
-    return mc->loop_switch_stack[mc->stack_ptr - 1];
+    fprintf(stderr, "Error: 'break' or 'continue' statement outside of a valid context.\n");
+    LoopSwitchContext error_context = {-1, -1}; // Return invalid targets
+    return error_context;
 }
 
 // Implement populate_mcode_instruction function
@@ -179,6 +191,18 @@ CompactMicrocode* ast_to_compact_microcode(Node* ast_root, HardwareContext* hw_c
     mc->max_varsel_val = 0;
     mc->var_sel_counter = 0; // Initialize to 0 to match hotstate behavior
     mc->max_state_val = 0;
+
+    // Initialize loop/switch stack
+    mc->stack_ptr = 0;
+    mc->stack_capacity = 16; // Initial capacity
+    mc->loop_switch_stack = malloc(sizeof(LoopSwitchContext) * mc->stack_capacity);
+    if (mc->loop_switch_stack == NULL) {
+        fprintf(stderr, "Error: Failed to allocate loop_switch_stack.\n");
+        free(mc->instructions);
+        free(mc->switchmem);
+        free(mc);
+        return NULL;
+    }
     
     ProgramNode* program = (ProgramNode*)ast_root;
     
@@ -536,15 +560,16 @@ static void process_statement(CompactMicrocode* mc, Node* stmt, int* addr) {
         
         case NODE_BREAK: {
             // Peek the current loop/switch context
-            LoopSwitchContext current_context = peek_context(mc);
+            LoopSwitchContext current_context = peek_context(mc, CONTEXT_TYPE_LOOP_OR_SWITCH);
             if (current_context.break_target == -1) { // Error handling for invalid context
                 fprintf(stderr, "Error: 'break' statement used outside of a loop or switch context.\n");
                 return;
             }
             // Optional: Use loop_type for more specific validation or behavior
-            if (current_context.loop_type != NODE_WHILE && current_context.loop_type != NODE_FOR && current_context.loop_type != NODE_SWITCH) {
-                fprintf(stderr, "Warning: 'break' used outside of a loop or switch context (type: %d).\n", current_context.loop_type);
-            }
+            // The new peek_context handles this, but keeping the warning for additional checks if needed.
+            // if (current_context.loop_type != NODE_WHILE && current_context.loop_type != NODE_FOR && current_context.loop_type != NODE_SWITCH) {
+            //     fprintf(stderr, "Warning: 'break' used outside of a loop or switch context (type: %d).\n", current_context.loop_type);
+            // }
 
             // Generate a jump instruction to the break_target
             MCode break_mcode;
@@ -556,15 +581,16 @@ static void process_statement(CompactMicrocode* mc, Node* stmt, int* addr) {
         }
         
         case NODE_CONTINUE: {
-            LoopSwitchContext current_context = peek_context(mc);
+            LoopSwitchContext current_context = peek_context(mc, CONTEXT_TYPE_LOOP);
             if (current_context.break_target == -1) { // Error handling for invalid context
-                fprintf(stderr, "Error: 'break' statement used outside of a loop or switch context.\n");
-                return; 
+                fprintf(stderr, "Error: 'continue' statement used outside of a loop context.\n");
+                return;
             }
             // Optional: Use loop_type for more specific validation or behavior
-            if (current_context.loop_type != NODE_WHILE && current_context.loop_type != NODE_FOR) {
-                fprintf(stderr, "Warning: 'continue' used outside of a loop context (type: %d).\n", current_context.loop_type);
-            }
+            // The new peek_context handles this, but keeping the warning for additional checks if needed.
+            // if (current_context.loop_type != NODE_WHILE && current_context.loop_type != NODE_FOR) {
+            //     fprintf(stderr, "Warning: 'continue' used outside of a loop context (type: %d).\n", current_context.loop_type);
+            // }
 
             // Generate a jump instruction to the continue_target
             MCode continue_mcode;

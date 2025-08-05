@@ -7,6 +7,11 @@
 #include <stdio.h>
 #include <stdint.h>
 
+typedef enum {
+    CONTEXT_TYPE_LOOP,
+    CONTEXT_TYPE_LOOP_OR_SWITCH
+} ContextSearchType;
+
 typedef struct {
     NodeType loop_type;  // e.g., NODE_WHILE, NODE_FOR, NODE_SWITCH
     int continue_target; // Microcode address for 'continue' statements
