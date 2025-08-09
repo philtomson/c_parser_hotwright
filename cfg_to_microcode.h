@@ -73,7 +73,7 @@ typedef struct {
 // Switch memory configuration
 #define MAX_SWITCH_ENTRIES      4096    // Total switch memory entries
 #define SWITCH_OFFSET_BITS      8       // 256 entries per switch (2^8)
-#define MAX_SWITCHES           16       // Maximum number of switches
+#define MAX_SWITCHES           4       // Maximum number of switches
 
 // --- Core Translation Functions ---
 

@@ -18,6 +18,22 @@ typedef struct {
     int break_target;    // Microcode address for 'break' statements
 } LoopSwitchContext;
 
+// Proposed PendingJump structure
+typedef enum {
+    JUMP_TYPE_BREAK,
+    JUMP_TYPE_CONTINUE,
+    JUMP_TYPE_EXIT,
+    JUMP_TYPE_DIRECT // For direct address jumps not tied to a context (e.g., if/else branches)
+} JumpType;
+
+typedef struct {
+    int instruction_index;              // Index in mc->instructions where the MCode is
+    int target_instruction_address;     // The symbolic target address (e.g., loop start, exit)
+    bool is_exit_jump;                  // True if this jump should target the global :exit
+    JumpType jump_type;                 // Type of jump (break, continue, exit)
+    int direct_address;                 // Used for JUMP_TYPE_DIRECT, stores the absolute address
+} PendingJump;
+
 // Compact microcode structure
 typedef struct {
     Code* instructions; // Array of new Code structs
@@ -44,8 +60,8 @@ typedef struct {
     int branch_instructions;
     int jump_instructions;
 
-    int max_jadr_val;
-    int max_varsel_val;
+    uint32_t max_jadr_val;
+    uint32_t max_varsel_val;
     int max_state_val;
     int max_mask_val; // Added for compatibility with HotstateMicrocode
     int max_timersel_val; // Added for compatibility with HotstateMicrocode
@@ -59,6 +75,11 @@ typedef struct {
     int max_sub_val; // Added for compatibility with HotstateMicrocode
     int max_rtn_val; // Added for compatibility with HotstateMicrocode
     int var_sel_counter; // Counter for varSel values
+
+    // Pending jump resolution
+    PendingJump* pending_jumps;
+    int pending_jump_count;
+    int pending_jump_capacity;
 } CompactMicrocode;
 
 // Main generation function

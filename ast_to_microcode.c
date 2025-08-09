@@ -22,7 +22,8 @@ static int gSwitches = 0;
 // Forward declarations
 static void process_function(CompactMicrocode* mc, FunctionDefNode* func);
 static void process_statement(CompactMicrocode* mc, Node* stmt, int* addr);
-static void add_compact_instruction(CompactMicrocode* mc, MCode* mcode, const char* label);
+static void add_compact_instruction(CompactMicrocode* mc, MCode* mcode, const char* label, JumpType jump_type, int jump_target_param);
+static void resolve_compact_microcode_jumps(CompactMicrocode* mc);
 // static uint32_t encode_compact_instruction(int state, int var, int timer, int jump,
 //                                           int switch_val, int timer_val, int cap,
 //                                           int var_val, int branch, int force, int ret);
@@ -68,18 +69,38 @@ static void populate_switch_memory(CompactMicrocode* mc, int switch_id, SwitchNo
 static void add_switch_instruction(CompactMicrocode* mc, MCode* mcode, const char* label, int switch_id);
 static void add_case_instruction(CompactMicrocode* mc, MCode* mcode, const char* label, int switch_id);
 // static uint32_t encode_switch_instruction(int switch_id, int is_switch_instr);
+static void push_context(CompactMicrocode* mc, LoopSwitchContext* context);
+static void pop_context(CompactMicrocode* mc);
+static void add_pending_jump(CompactMicrocode* mc, int instruction_index, int target_instruction_address, bool is_exit_jump);
+static void resize_pending_jumps(CompactMicrocode* mc);
 
-static void push_context(CompactMicrocode* mc, LoopSwitchContext context);
-static void pop_context(CompactMicrocode* mc);  
-
-static void push_context(CompactMicrocode* mc, LoopSwitchContext context) {
+static void push_context(CompactMicrocode* mc, LoopSwitchContext* context) {
     if(mc->stack_ptr >= mc->stack_capacity) {
         mc->stack_capacity *= 2;
         mc->loop_switch_stack = realloc(mc->loop_switch_stack, sizeof(LoopSwitchContext) * mc->stack_capacity);
         // Error handling for realloc is important in production code, but for this context,
         // we'll assume it succeeds for simplicity or let it crash if it's truly out of memory.
     }
-    mc->loop_switch_stack[mc->stack_ptr++] = context;
+    mc->loop_switch_stack[mc->stack_ptr++] = *context;
+}
+
+static void add_pending_jump(CompactMicrocode* mc, int instruction_index, int target_instruction_address, bool is_exit_jump) {
+    if (mc->pending_jump_count >= mc->pending_jump_capacity) {
+        resize_pending_jumps(mc);
+    }
+    mc->pending_jumps[mc->pending_jump_count].instruction_index = instruction_index;
+    mc->pending_jumps[mc->pending_jump_count].target_instruction_address = target_instruction_address;
+    mc->pending_jumps[mc->pending_jump_count].is_exit_jump = is_exit_jump;
+    mc->pending_jump_count++;
+}
+
+static void resize_pending_jumps(CompactMicrocode* mc) {
+    mc->pending_jump_capacity *= 2;
+    mc->pending_jumps = realloc(mc->pending_jumps, sizeof(PendingJump) * mc->pending_jump_capacity);
+    if (mc->pending_jumps == NULL) {
+        fprintf(stderr, "Error: Failed to reallocate pending_jumps array.\n");
+        exit(EXIT_FAILURE); // Or handle error appropriately
+    }
 }
 
 static void pop_context(CompactMicrocode* mc){
@@ -116,7 +137,7 @@ static void populate_mcode_instruction(
     MCode* mcode_ptr,
     uint32_t state,
     uint32_t mask,
-    uint32_t jadr,
+    uint32_t jadr_placeholder, // Renamed to clarify it's a placeholder
     uint32_t varSel,
     uint32_t timerSel,
     uint32_t timerLd,
@@ -132,8 +153,7 @@ static void populate_mcode_instruction(
     // Populate the MCode struct fields directly
     mcode_ptr->state = state;
     mcode_ptr->mask = mask;
-    mcode_ptr->jadr = jadr;
-    fprintf(stderr, "DEBUG: populate_mcode_instruction: jadr received=%d, assigned=%d, varSel received=%d\n", jadr, mcode_ptr->jadr, varSel);
+    mcode_ptr->jadr = jadr_placeholder; // Set to placeholder, will be resolved in Pass 2
     mcode_ptr->varSel = varSel;
     mcode_ptr->timerSel = timerSel;
     mcode_ptr->timerLd = timerLd;
@@ -147,9 +167,14 @@ static void populate_mcode_instruction(
     mcode_ptr->rtn = rtn;
 
     // Update max_val fields in CompactMicrocode for dynamic bit-width calculation
-    if (jadr > mc->max_jadr_val) {
-        mc->max_jadr_val = jadr;
-    }
+    // Update max_jadr_val based on the potential maximum address, not placeholder
+    // This assumes actual addresses are within the range of potential jadr values
+    // A more robust solution might track max_jadr in the resolve pass.
+    // For now, we'll keep it as is, but it's important to note this might not be accurate
+    // until after resolution.
+    // if (jadr_placeholder > mc->max_jadr_val) {
+    //     mc->max_jadr_val = jadr_placeholder;
+    // }
     if (varSel > mc->max_varsel_val) {
         mc->max_varsel_val = varSel;
     }
@@ -210,7 +235,7 @@ CompactMicrocode* ast_to_compact_microcode(Node* ast_root, HardwareContext* hw_c
     mc->hw_ctx = hw_ctx;
     
     // Initialize switch memory management
-    mc->switchmem = calloc(MAX_SWITCH_ENTRIES, sizeof(uint32_t));
+    mc->switchmem = calloc(MAX_SWITCH_ENTRIES * MAX_SWITCHES, sizeof(uint32_t));
     mc->switch_count = 0;
     mc->switch_offset_bits = SWITCH_OFFSET_BITS;
     
@@ -236,6 +261,18 @@ CompactMicrocode* ast_to_compact_microcode(Node* ast_root, HardwareContext* hw_c
     mc->max_sub_val = 0;
     mc->max_rtn_val = 0;
 
+    // Initialize pending jump resolution
+    mc->pending_jumps = (PendingJump*)malloc(sizeof(PendingJump) * 16); // Initial capacity
+    if (mc->pending_jumps == NULL) {
+        fprintf(stderr, "Error: Failed to allocate pending_jumps.\n");
+        free(mc->instructions);
+        free(mc->switchmem);
+        free(mc);
+        return NULL;
+    }
+    mc->pending_jump_count = 0;
+    mc->pending_jump_capacity = 16;
+
     // Initialize loop/switch stack
     mc->stack_ptr = 0;
     mc->stack_capacity = 16; // Initial capacity
@@ -244,9 +281,12 @@ CompactMicrocode* ast_to_compact_microcode(Node* ast_root, HardwareContext* hw_c
         fprintf(stderr, "Error: Failed to allocate loop_switch_stack.\n");
         free(mc->instructions);
         free(mc->switchmem);
+        free(mc->pending_jumps); // Free pending_jumps as well
         free(mc);
         return NULL;
     }
+    mc->pending_jump_count = 0;
+    mc->pending_jump_capacity = 16;
     
     ProgramNode* program = (ProgramNode*)ast_root;
     
@@ -262,7 +302,27 @@ CompactMicrocode* ast_to_compact_microcode(Node* ast_root, HardwareContext* hw_c
         }
     }
     
+    // Resolve all pending jumps after all microcode has been generated
+    resolve_compact_microcode_jumps(mc);
+    
     return mc;
+}
+
+static void resolve_compact_microcode_jumps(CompactMicrocode* mc) {
+    for (int i = 0; i < mc->pending_jump_count; i++) {
+        PendingJump jump = mc->pending_jumps[i];
+        if (jump.instruction_index < mc->instruction_count) {
+            MCode* mcode = &mc->instructions[jump.instruction_index].uword.mcode;
+            if (jump.is_exit_jump) {
+                mcode->jadr = mc->exit_address;
+            } else {
+                mcode->jadr = jump.target_instruction_address;
+            }
+        } else {
+            fprintf(stderr, "Warning: Pending jump instruction index out of bounds: %d (max %d)\n",
+                    jump.instruction_index, mc->instruction_count - 1);
+        }
+    }
 }
 
 // Forward declaration for counting instructions
@@ -273,7 +333,7 @@ static int count_statements(Node* stmt) {
     if (!stmt) return 0;
     
     int count = 0; // Initialize count to 0
-    fprintf(stderr, "DEBUG: count_statements: Node type %d\n", stmt->type);
+    // Add a debug print at the very beginning of the function
 
     switch (stmt->type) {
         case NODE_WHILE: {
@@ -294,7 +354,7 @@ static int count_statements(Node* stmt) {
                 }
             }
             
-            count++; // closing brace jump
+            // count++; // closing brace jump (removed to match hotstate instruction count)
             break; // Use break instead of return here
         }
         
@@ -336,23 +396,28 @@ static int count_statements(Node* stmt) {
         
         case NODE_SWITCH: {
             SwitchNode* switch_node = (SwitchNode*)stmt;
-            count = 1; // switch header
+            // Start with 1 for the switch header itself
+            int switch_total_count = 1;
             
             // Count case statements
             if (switch_node->cases) {
                 for (int i = 0; i < switch_node->cases->count; i++) {
                     CaseNode* case_node = (CaseNode*)switch_node->cases->items[i];
-                    // count++; // case label - removed to match hotstate instruction count
+                    // Count 1 for the case/default label itself
+                    switch_total_count++; // Add 1 for the case/default label
                     
                     // Count case body statements
                     if (case_node->body) {
                         for (int j = 0; j < case_node->body->count; j++) {
-                            count += count_statements(case_node->body->items[j]);
+                            switch_total_count += count_statements(case_node->body->items[j]);
                         }
                     }
                 }
             }
-            break; // Use break instead of return here
+            // Debug print to check the calculated total for NODE_SWITCH
+            // Assign the calculated total to the 'count' variable for this statement
+            count = switch_total_count;
+            break;
         }
         
         case NODE_ASSIGNMENT:
@@ -373,6 +438,9 @@ static int count_statements(Node* stmt) {
                     count += count_statements(block->statements->items[i]);
                 }
             }
+            // Count for the closing brace '}'
+            // Hotstate implicitly generates an instruction for the closing brace of a block
+            count++;
             break; // Use break instead of return here
         }
         case NODE_FOR: {
@@ -400,7 +468,6 @@ static int count_statements(Node* stmt) {
             count = 1; // Default to 1 instruction
             break; // Use break instead of return here
     }
-    fprintf(stderr, "DEBUG: count_statements: Node type %d, count=%d\n", stmt->type, count);
     return count;
 }
 
@@ -408,17 +475,9 @@ static void process_function(CompactMicrocode* mc, FunctionDefNode* func) {
     int current_addr = 0;
     int* addr = &current_addr;
     
-    // Calculate exit address dynamically
-    int exit_addr = 1; // Start after main() entry
-    if (func->body && func->body->type == NODE_BLOCK) {
-        BlockNode* block = (BlockNode*)func->body;
-        for (int i = 0; i < block->statements->count; i++) {
-            exit_addr += count_statements(block->statements->items[i]);
-        }
-    }
-    
-    // Store exit address for use in while loops
-    mc->exit_address = exit_addr;
+    // Calculate exit address dynamically. This will be the address of the :exit instruction.
+    // It is the current address after all statements in the function body are processed.
+    // Store exit address for use in jump resolution.
     
     // Add function entry, calculating initial state from hw_ctx
     int initial_state = 0;
@@ -436,11 +495,10 @@ static void process_function(CompactMicrocode* mc, FunctionDefNode* func) {
     // Use calculated state and mask. Mask should be 7 for 3 state variables.
     MCode entry_mcode;
     populate_mcode_instruction(mc, &entry_mcode, 4, 7, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0); // state set to 4, mask to 7, switch_sel to 0, state_capture to 1
-    add_compact_instruction(mc, &entry_mcode, "main(){");
+    add_compact_instruction(mc, &entry_mcode, "main(){", JUMP_TYPE_DIRECT, 0);
     (*addr)++; // Increment address for main(){
     
     
-    // Process function body
     if (func->body && func->body->type == NODE_BLOCK) {
         BlockNode* block = (BlockNode*)func->body;
         for (int i = 0; i < block->statements->count; i++) {
@@ -448,18 +506,20 @@ static void process_function(CompactMicrocode* mc, FunctionDefNode* func) {
         }
     }
     
-    // Add exit instruction (self-loop)
+    // Set the exit address after all instructions have been generated
+    // The exit instruction will be the last instruction, so its address is mc->instruction_count - 1
+    mc->exit_address = mc->instruction_count; // Set exit address to the total number of instructions generated
+
+    // Add exit instruction (will be a self-loop after resolution)
     MCode exit_mcode;
-    populate_mcode_instruction(mc, &exit_mcode, 0, 0, exit_addr, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0);
-    add_compact_instruction(mc, &exit_mcode, ":exit");
-    fprintf(stderr, "DEBUG: process_function: mc->exit_address = %d\n", mc->exit_address);
+    populate_mcode_instruction(mc, &exit_mcode, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0); // jadr placeholder
+    add_compact_instruction(mc, &exit_mcode, ":exit", JUMP_TYPE_EXIT, mc->exit_address);
 }
 
 
 // In ast_to_microcode.c (within process_statement function)
 static void process_statement(CompactMicrocode* mc, Node* stmt, int* addr) {
     if (!stmt) return;
-    fprintf(stderr, "DEBUG: process_statement called for type %d at addr %d\n", stmt->type, *addr);
     
     switch (stmt->type) {
         case NODE_WHILE: {
@@ -468,7 +528,18 @@ static void process_statement(CompactMicrocode* mc, Node* stmt, int* addr) {
             // Determine continue_target (address of the while loop header) and break_target (address after the loop)
             int while_loop_start_addr = *addr; 
             // Determine break_target (address after the entire while loop)
-            int estimated_break_target = *addr + count_statements((Node*)while_node);
+            int estimated_break_target;
+            // Check if it's a while(1) loop
+            bool is_while_one = (while_node->condition->type == NODE_NUMBER_LITERAL &&
+                                 atoi(((NumberLiteralNode*)while_node->condition)->value) == 1);
+            if (while_node->condition->type == NODE_NUMBER_LITERAL) {
+            }
+
+            if (is_while_one) {
+                estimated_break_target = mc->exit_address; // For while(1), break target is program exit
+            } else {
+                estimated_break_target = *addr + count_statements((Node*)while_node);
+            }
 
             // Create and push the loop context onto the stack
             LoopSwitchContext current_loop_context = {
@@ -476,7 +547,7 @@ static void process_statement(CompactMicrocode* mc, Node* stmt, int* addr) {
                 .continue_target = while_loop_start_addr,
                 .break_target = mc->exit_address // For while(1) this means jump to exit
             };
-            push_context(mc, current_loop_context);
+            push_context(mc, &current_loop_context);
             char* condition_lable_str = NULL;
             char while_full_label[256];
             if (while_node->condition) {
@@ -488,15 +559,13 @@ static void process_statement(CompactMicrocode* mc, Node* stmt, int* addr) {
             snprintf(while_full_label, sizeof(while_full_label), "while (%s) {", condition_lable_str);
             
             
-            // Generate the while loop header instruction (jumps to break_target if condition is false)
+            // Generate the while loop header instruction (jumps to loop_exit_addr if condition is false)
             MCode while_mcode;
-            populate_mcode_instruction(mc, &while_mcode, 0, 0, current_loop_context.break_target, mc->var_sel_counter++, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0); // branch=1, state_capture=1, forced_jmp=0
-            fprintf(stderr, "DEBUG: while_mcode.varSel after populate: %d\n", while_mcode.varSel);
-            fprintf(stderr, "DEBUG: Before add_compact_instruction: while_mcode.jadr = %d\n", while_mcode.jadr);
-            add_compact_instruction(mc, &while_mcode, while_full_label);
+            populate_mcode_instruction(mc, &while_mcode, 0, 0, 0, mc->var_sel_counter++, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0); // jadr placeholder, branch=1, state_capture=1, forced_jmp=0
+            add_compact_instruction(mc, &while_mcode, while_full_label, JUMP_TYPE_EXIT, mc->exit_address);
             (*addr)++;
             
-            free(condition_lable_str);  
+            free(condition_lable_str);
             // Process while body statements
             if (while_node->body) {
                 if (while_node->body->type == NODE_BLOCK) {
@@ -513,8 +582,8 @@ static void process_statement(CompactMicrocode* mc, Node* stmt, int* addr) {
             
             // Add the jump back to the loop header for the next iteration
             MCode jump_mcode;
-            populate_mcode_instruction(mc, &jump_mcode, 0, 0, current_loop_context.continue_target, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0);
-            add_compact_instruction(mc, &jump_mcode, "}");
+            populate_mcode_instruction(mc, &jump_mcode, 0, 0, current_loop_context.continue_target, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0); // Jadr still needs to be populated for the MCode struct
+            add_compact_instruction(mc, &jump_mcode, "}", JUMP_TYPE_CONTINUE, mc->stack_ptr - 1);
             mc->jump_instructions++;
             (*addr)++;
             
@@ -542,10 +611,9 @@ static void process_statement(CompactMicrocode* mc, Node* stmt, int* addr) {
             
             MCode if_mcode;
             populate_mcode_instruction(mc, &if_mcode, 0, 0, jump_addr, mc->var_sel_counter++, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0);
-            fprintf(stderr, "DEBUG: if_mcode.varSel after populate: %d\n", if_mcode.varSel);
             char if_full_label[256];
             snprintf(if_full_label, sizeof(if_full_label), "if (%s) {", condition_label);
-            add_compact_instruction(mc, &if_mcode, if_full_label);
+            add_compact_instruction(mc, &if_mcode, if_full_label, JUMP_TYPE_DIRECT, calculate_jump_address(mc, if_node, *addr));
             mc->branch_instructions++;
             (*addr)++;
             
@@ -561,7 +629,7 @@ static void process_statement(CompactMicrocode* mc, Node* stmt, int* addr) {
                 int else_jump_addr = calculate_else_jump_address(mc, if_node, *addr);
                 MCode else_mcode;
                 populate_mcode_instruction(mc, &else_mcode, 0, 0, else_jump_addr, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0);
-                add_compact_instruction(mc, &else_mcode, "else");
+                add_compact_instruction(mc, &else_mcode, "else", JUMP_TYPE_DIRECT, calculate_else_jump_address(mc, if_node, *addr));
                 mc->jump_instructions++;
                 (*addr)++;
                 
@@ -603,11 +671,11 @@ static void process_statement(CompactMicrocode* mc, Node* stmt, int* addr) {
                 .continue_target = -1,    // Continue is not applicable for switch
                 .break_target = switch_break_target
             };
-            push_context(mc, current_switch_context);
+            push_context(mc, &current_switch_context);
 
             process_switch_statement(mc, switch_node, addr);
             
-            pop_context(mc); // Pop the switch context after processing
+pop_context(mc); // Pop the switch context after processing
             break;
         }
         
@@ -627,9 +695,10 @@ static void process_statement(CompactMicrocode* mc, Node* stmt, int* addr) {
             // Generate a jump instruction to the break_target
             MCode break_mcode;
             populate_mcode_instruction(mc, &break_mcode, 0, 0, current_context.break_target, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0);
-            add_compact_instruction(mc, &break_mcode, "break;");
+            add_compact_instruction(mc, &break_mcode, "break;", JUMP_TYPE_BREAK, mc->stack_ptr - 1);
             mc->jump_instructions++;
             (*addr)++;
+            // pop_context(mc); // Removed - Context should not be popped by individual break statements
             break;
         }
         
@@ -648,9 +717,10 @@ static void process_statement(CompactMicrocode* mc, Node* stmt, int* addr) {
             // Generate a jump instruction to the continue_target
             MCode continue_mcode;
             populate_mcode_instruction(mc, &continue_mcode, 0, 0, current_context.continue_target, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0);
-            add_compact_instruction(mc, &continue_mcode, "continue;");
+            add_compact_instruction(mc, &continue_mcode, "continue;", JUMP_TYPE_CONTINUE, mc->stack_ptr - 1);
             mc->jump_instructions++;
             (*addr)++;
+            // pop_context(mc); // Removed - Context should not be popped by individual continue statements
             break;
         }
         
@@ -683,6 +753,12 @@ static void process_switch_statement(CompactMicrocode* mc, SwitchNode* switch_no
         fprintf(stderr, "Error: Switch expression is not an identifier. Type: %d\n", switch_node->expression->type);
         return;
     }
+
+    // Calculate the estimated break_target for this switch statement
+    // This is the address immediately after the entire switch block
+    int estimated_break_target = *addr + count_statements((Node*)switch_node);
+
+    // Push the current switch context onto the stack
 
     // Generate switch instruction with proper hotstate fields
     MCode switch_mcode;
@@ -720,12 +796,13 @@ static void process_switch_statement(CompactMicrocode* mc, SwitchNode* switch_no
                 process_statement(mc, case_node->body->items[j], addr);
             }
         }
+        // Pop the switch context from the stack
     }
     
     // Note: Default case is handled as a CaseNode with value=NULL in the cases list above
     MCode end_switch_mcode;
     populate_mcode_instruction(mc, &end_switch_mcode, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-    add_compact_instruction(mc, &end_switch_mcode, "}}");
+    add_compact_instruction(mc, &end_switch_mcode, "}}", JUMP_TYPE_DIRECT, 0);
     (*addr)++;
 }
 
@@ -759,7 +836,7 @@ static void process_expression(CompactMicrocode* mc, Node* expr, int* addr) {
             
             char label[64];
             snprintf(label, sizeof(label), "load %s", ident->name);
-            add_compact_instruction(mc, &load_mcode, label);
+            add_compact_instruction(mc, &load_mcode, label, JUMP_TYPE_DIRECT, 0);
             (*addr)++;
             break;
         }
@@ -771,7 +848,7 @@ static void process_expression(CompactMicrocode* mc, Node* expr, int* addr) {
             populate_mcode_instruction(mc, &imm_mcode, 0, 2, 0, 0, 0, 0, 0, atoi(num->value), 0, 0, 0, 0, 0, 0);
             char label[64];
             snprintf(label, sizeof(label), "load #%s", num->value);
-            add_compact_instruction(mc, &imm_mcode, label);
+            add_compact_instruction(mc, &imm_mcode, label, JUMP_TYPE_DIRECT, 0);
             (*addr)++;
             break;
         }
@@ -785,7 +862,7 @@ static void process_expression(CompactMicrocode* mc, Node* expr, int* addr) {
             // Generate operation instruction
             MCode op_mcode;
             populate_mcode_instruction(mc, &op_mcode, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-            add_compact_instruction(mc, &op_mcode, "binop");
+            add_compact_instruction(mc, &op_mcode, "binop", JUMP_TYPE_DIRECT, 0);
             (*addr)++;
             break;
         }
@@ -796,14 +873,34 @@ static void process_expression(CompactMicrocode* mc, Node* expr, int* addr) {
     }
 }
 
-static void add_compact_instruction(CompactMicrocode* mc, MCode* mcode, const char* label) {
+static void add_compact_instruction(CompactMicrocode* mc, MCode* mcode, const char* label, JumpType jump_type, int jump_target_param) {
     if (mc->instruction_count >= mc->instruction_capacity) {
         mc->instruction_capacity *= 2;
         mc->instructions = (Code*)realloc(mc->instructions, sizeof(mc->instructions[0]) * mc->instruction_capacity);
     }
-    
+
     mc->instructions[mc->instruction_count].uword.mcode = *mcode;
-    mc->instructions[mc->instruction_count].label = strdup(label);
+    mc->instructions[mc->instruction_count].label = label ? strdup(label) : NULL;
+
+    // If this is a jump instruction, add it to pending_jumps
+    if (mcode->branch || mcode->forced_jmp) {
+        int resolved_jadr = 0;
+        bool is_exit_target_jump = false;
+
+        if (jump_type == JUMP_TYPE_BREAK) {
+            LoopSwitchContext ctx = peek_context(mc, CONTEXT_TYPE_LOOP_OR_SWITCH);
+            resolved_jadr = ctx.break_target;
+        } else if (jump_type == JUMP_TYPE_CONTINUE) {
+            LoopSwitchContext ctx = peek_context(mc, CONTEXT_TYPE_LOOP);
+            resolved_jadr = ctx.continue_target;
+        } else if (jump_type == JUMP_TYPE_DIRECT) {
+            resolved_jadr = jump_target_param;
+        } else if (jump_type == JUMP_TYPE_EXIT) {
+            resolved_jadr = mc->exit_address;
+            is_exit_target_jump = true;
+        }
+        add_pending_jump(mc, mc->instruction_count, resolved_jadr, is_exit_target_jump);
+    }
     mc->instruction_count++;
 }
 
@@ -1049,7 +1146,7 @@ static void process_assignment(CompactMicrocode* mc, AssignmentNode* assign, int
             
             char label[64];
             snprintf(label, sizeof(label), "%s=%d;", id->name, assign_value);
-            add_compact_instruction(mc, &assign_mcode, label);
+            add_compact_instruction(mc, &assign_mcode, label, JUMP_TYPE_DIRECT, 0);
             mc->state_assignments++;
             (*addr)++;
         }
@@ -1142,7 +1239,7 @@ static void process_expression_statement(CompactMicrocode* mc, ExpressionStateme
             
             MCode combo_mcode;
             populate_mcode_instruction(mc, &combo_mcode, state_field, mask_field, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0);
-            add_compact_instruction(mc, &combo_mcode, source_code);
+            add_compact_instruction(mc, &combo_mcode, source_code, JUMP_TYPE_DIRECT, 0);
             free(source_code);
             mc->state_assignments++;
             (*addr)++;
@@ -1255,7 +1352,9 @@ void print_compact_microcode_table(CompactMicrocode* mc, FILE* output) {
         switch_bits = 1;
     }
     int switch_nibs = (switch_bits > 0) ? (switch_bits + 3) / 4 : 1;
-    int gAddrnibs = (((log10(mc->instruction_count)/log10(2))) + 1)/4;
+    int gAddrnibs = (int)ceil(((log10(mc->instruction_count)/log10(2))) / 4.0);
+    if (gAddrnibs == 0) gAddrnibs = 1; // Ensure at least 1 nibble for 0 instructions
+    fprintf(stderr, "DEBUG: print_compact_microcode_table: mc->instruction_count = %d, gAddrnibs = %d\n", mc->instruction_count, gAddrnibs);
     
     // Print the header (matching hotstate format)
     ColumnFormat columns[] = {
@@ -1312,6 +1411,12 @@ void print_compact_microcode_table(CompactMicrocode* mc, FILE* output) {
 
     
     // Print each instruction in hotstate format
+    // Debug: Check jadr of instruction 1 before printing loop
+    if (mc->instruction_count > 1) {
+        MCode* debug_mcode = &mc->instructions[1].uword.mcode;
+        fprintf(stderr, "DEBUG: print_compact_microcode_table: Instruction 1 jadr before print loop: %d\n", debug_mcode->jadr);
+    }
+
     for (int i = 0; i < mc->instruction_count; i++) {
         Code* code_entry = &mc->instructions[i];
         MCode* mcode = &code_entry->uword.mcode;
@@ -1320,7 +1425,7 @@ void print_compact_microcode_table(CompactMicrocode* mc, FILE* output) {
         uint32_t state = mcode->state;
         uint32_t mask = mcode->mask;
         uint32_t jadr = mcode->jadr;
-        uint32_t varsel = code_entry->uword.value[3]; // Direct access to varSel field
+        uint32_t varsel = mcode->varSel; // Direct access to varSel field
         uint32_t timer_sel = mcode->timerSel;
         uint32_t timer_ld = mcode->timerLd;
         uint32_t switch_sel = mcode->switch_sel;
@@ -1417,7 +1522,9 @@ void free_compact_microcode(CompactMicrocode* mc) {
     
     free(mc->instructions);
     free(mc->function_name);
+    free(mc->loop_switch_stack); // Free loop_switch_stack
     free(mc->switchmem);  // Free switch memory
+    free(mc->pending_jumps); // Free the pending jumps array
     free(mc);
 }
 
@@ -1469,14 +1576,8 @@ static void add_switch_instruction(CompactMicrocode* mc, MCode* mcode, const cha
 
 // Add case target instruction with case metadata
 static void add_case_instruction(CompactMicrocode* mc, MCode* mcode, const char* label, int switch_id) {
-    if (mc->instruction_count >= mc->instruction_capacity) {
-        mc->instruction_capacity *= 2;
-        mc->instructions = (Code*)realloc(mc->instructions, sizeof(mc->instructions[0]) * mc->instruction_capacity);
-    }
-    
-    mc->instructions[mc->instruction_count].uword.mcode = *mcode;
-    mc->instructions[mc->instruction_count].label = strdup(label);
-    mc->instruction_count++;
+    // Case instructions are not jumps themselves.
+    add_compact_instruction(mc, mcode, label, JUMP_TYPE_DIRECT, 0);
 }
 
 
