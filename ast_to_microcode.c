@@ -286,6 +286,20 @@ CompactMicrocode* ast_to_compact_microcode(Node* ast_root, HardwareContext* hw_c
     }
     mc->pending_switch_break_count = 0;
 
+    // Initialize switch info tracking
+    mc->switch_infos = (SwitchInfo*)malloc(sizeof(SwitchInfo) * MAX_SWITCHES);
+    if (mc->switch_infos == NULL) {
+        fprintf(stderr, "Error: Failed to allocate switch_infos.\n");
+        free(mc->pending_switch_breaks);
+        free(mc->pending_jumps);
+        free(mc->instructions);
+        free(mc->switchmem);
+        free(mc);
+        return NULL;
+    }
+    mc->switch_info_count = 0;
+    mc->switch_info_capacity = MAX_SWITCHES;
+
     // Initialize loop/switch stack
     mc->stack_ptr = 0;
     mc->stack_capacity = 16; // Initial capacity
@@ -341,6 +355,30 @@ static void resolve_compact_microcode_jumps(CompactMicrocode* mc) {
     }
 }
 
+// Helper function to find the end address of a switch using switch info tracking
+static int find_switch_end_address(CompactMicrocode* mc, int switch_start_addr) {
+    // Find the instruction corresponding to the switch start
+    if (switch_start_addr < 0 || switch_start_addr >= mc->instruction_count) {
+        return switch_start_addr + 1; // Default fallback
+    }
+    
+    fprintf(stderr, "DEBUG: find_switch_end_address: Looking for end of switch starting at %d\n", switch_start_addr);
+    
+    // Look through the switch info we've collected to find the end address for this switch
+    for (int i = 0; i < mc->switch_info_count; i++) {
+        if (mc->switch_infos[i].switch_start_addr == switch_start_addr) {
+            fprintf(stderr, "DEBUG: find_switch_end_address: Found switch info for start addr %d, end addr %d\n",
+                    switch_start_addr, mc->switch_infos[i].switch_end_addr);
+            return mc->switch_infos[i].switch_end_addr;
+        }
+    }
+    
+    // If we don't have switch info, return a reasonable default
+    // This should not happen in a properly functioning system
+    fprintf(stderr, "DEBUG: find_switch_end_address: No switch info found for start addr %d, using fallback\n", switch_start_addr);
+    return mc->instruction_count - 1;
+}
+
 // Resolve switch break addresses after all instructions have been generated
 static void resolve_switch_break_addresses(CompactMicrocode* mc) {
     if (!mc || !mc->pending_switch_breaks || mc->pending_switch_break_count == 0) {
@@ -349,24 +387,156 @@ static void resolve_switch_break_addresses(CompactMicrocode* mc) {
     
     fprintf(stderr, "DEBUG: Resolving %d switch break addresses\n", mc->pending_switch_break_count);
     
-    // For the specific test case, we know the correct addresses
-    // This is a temporary solution to verify the approach works
+    // Create a mapping from switch start address to end address
+    SwitchInfo switch_infos[MAX_SWITCHES];
+    int switch_info_count = 0;
+    
+    // First, build the switch info mapping
+    for (int i = 0; i < mc->pending_switch_break_count; i++) {
+        PendingSwitchBreak* pending = &mc->pending_switch_breaks[i];
+        int switch_start_addr = pending->switch_start_addr;
+        
+        // Check if we already have info for this switch
+        bool found = false;
+        for (int j = 0; j < switch_info_count; j++) {
+            if (switch_infos[j].switch_start_addr == switch_start_addr) {
+                found = true;
+                break;
+            }
+        }
+        
+        // If not found, add new switch info
+        if (!found && switch_info_count < MAX_SWITCHES) {
+            // For now, we'll determine the end address dynamically
+            // We'll update this with the actual end address later
+            switch_infos[switch_info_count].switch_start_addr = switch_start_addr;
+            switch_infos[switch_info_count].switch_end_addr = -1; // Will be determined later
+            switch_infos[switch_info_count].first_break_index = i;
+            switch_infos[switch_info_count].break_count = 1;
+            switch_info_count++;
+        } else if (found) {
+            // Increment break count for existing switch
+            for (int j = 0; j < switch_info_count; j++) {
+                if (switch_infos[j].switch_start_addr == switch_start_addr) {
+                    switch_infos[j].break_count++;
+                    break;
+                }
+            }
+        }
+    }
+    
+    // Build a complete map of all switch boundaries using a stack-based approach
+    typedef struct {
+        int start_addr;
+        int end_addr;
+    } SwitchBoundary;
+    
+    SwitchBoundary boundaries[MAX_SWITCHES];
+    int boundary_count = 0;
+    
+    // Stack to track open switches
+    int switch_stack[MAX_SWITCHES];
+    int stack_top = -1;
+    
+    // Scan through all instructions to match switches with their closing "}}"
+    for (int i = 0; i < mc->instruction_count; i++) {
+        const char* label = mc->instructions[i].label;
+        if (label) {
+            // Check for SWITCH instruction (not CASE or DEFAULT)
+            if (strstr(label, "SWITCH") != NULL &&
+                strstr(label, "CASE") == NULL &&
+                strstr(label, "DEFAULT") == NULL) {
+                // Push this switch onto the stack
+                stack_top++;
+                if (stack_top < MAX_SWITCHES) {
+                    switch_stack[stack_top] = i;
+                    fprintf(stderr, "DEBUG: Found SWITCH at %d (0x%x), stack depth %d\n",
+                            i, i, stack_top + 1);
+                }
+            }
+            // Check for "}}" which closes a switch
+            else if (strcmp(label, "}}") == 0) {
+                if (stack_top >= 0) {
+                    // Pop the most recent switch from the stack
+                    int start = switch_stack[stack_top];
+                    stack_top--;
+                    
+                    // Record this switch boundary
+                    if (boundary_count < MAX_SWITCHES) {
+                        boundaries[boundary_count].start_addr = start;
+                        boundaries[boundary_count].end_addr = i + 1; // Jump to after "}}"
+                        fprintf(stderr, "DEBUG: Matched SWITCH at %d with }} at %d, breaks jump to %d (0x%x)\n",
+                                start, i, i + 1, i + 1);
+                        boundary_count++;
+                    }
+                }
+            }
+        }
+    }
+    
+    // Now update the switch_infos with the correct end addresses
+    for (int i = 0; i < switch_info_count; i++) {
+        int switch_start = switch_infos[i].switch_start_addr;
+        int switch_end = -1;
+        
+        // Find the matching boundary
+        for (int j = 0; j < boundary_count; j++) {
+            if (boundaries[j].start_addr == switch_start) {
+                switch_end = boundaries[j].end_addr;
+                break;
+            }
+        }
+        
+        if (switch_end == -1) {
+            // Fallback: use the switch info if available
+            switch_end = find_switch_end_address(mc, switch_start);
+        }
+        
+        switch_infos[i].switch_end_addr = switch_end;
+        fprintf(stderr, "DEBUG: Switch info: start=%d, end=%d (0x%x)\n",
+                switch_start, switch_end, switch_end);
+    }
+    
+    // Now resolve all break addresses
+    // We need to match breaks with their containing switches based on instruction position
     for (int i = 0; i < mc->pending_switch_break_count; i++) {
         PendingSwitchBreak* pending = &mc->pending_switch_breaks[i];
         
-        // Find the instruction in the microcode and update its jump address
         if (pending->instruction_index < mc->instruction_count) {
-            int instr_addr = mc->instructions[pending->instruction_index].uword.mcode.jadr;
+            int break_addr = pending->instruction_index;
+            int target_addr = -1;
+            int innermost_start = -1;
+            int innermost_end = -1;
             
-            // Based on the known structure of the test case, set the correct jump addresses
-            if (instr_addr == 0x16) {  // Instruction 19
-                mc->instructions[pending->instruction_index].uword.mcode.jadr = 0x1b;
-                fprintf(stderr, "DEBUG: Fixed instruction 19 to jump to 0x1b\n");
-            } else if (instr_addr == 0x27) {  // Instructions 22, 28, 2e
-                mc->instructions[pending->instruction_index].uword.mcode.jadr = 0x30;
-                fprintf(stderr, "DEBUG: Fixed instruction %d to jump to 0x30\n", pending->instruction_index);
+            // Find the innermost switch that contains this break instruction
+            // We need to find the switch with the smallest range that still contains the break
+            for (int j = 0; j < boundary_count; j++) {
+                if (boundaries[j].start_addr < break_addr &&
+                    break_addr < boundaries[j].end_addr - 1) {
+                    // This break is inside this switch
+                    // Check if this is more inner than what we've found so far
+                    if (innermost_start == -1 ||
+                        (boundaries[j].end_addr - boundaries[j].start_addr) < (innermost_end - innermost_start)) {
+                        innermost_start = boundaries[j].start_addr;
+                        innermost_end = boundaries[j].end_addr;
+                        target_addr = boundaries[j].end_addr;
+                    }
+                }
             }
-            // Instructions 8 and b are already correct (0x1f)
+            
+            if (target_addr != -1) {
+                fprintf(stderr, "DEBUG: Break at %d belongs to innermost switch %d-%d, jumping to 0x%x\n",
+                        break_addr, innermost_start, innermost_end - 1, target_addr);
+            }
+            
+            // Update the jump address
+            if (target_addr != -1) {
+                mc->instructions[pending->instruction_index].uword.mcode.jadr = target_addr;
+                fprintf(stderr, "DEBUG: Fixed instruction %d to jump to 0x%x\n",
+                        pending->instruction_index, target_addr);
+            } else {
+                fprintf(stderr, "WARNING: Could not find containing switch for break at %d\n", break_addr);
+            }
         }
     }
     
@@ -453,14 +623,43 @@ static int count_statements(Node* stmt) {
                 fprintf(stderr, "DEBUG: count_statements: Switch has %d cases\n", switch_node->cases->count);
                 for (int i = 0; i < switch_node->cases->count; i++) {
                     CaseNode* case_node = (CaseNode*)switch_node->cases->items[i];
-                    // Don't count the case/default label itself as it doesn't increment the address
-                    // switch_total_count++; // REMOVED: Don't add 1 for the case/default label
+                    // Add 1 for the case/default label itself (CASE_0, CASE_1, etc.)
+                    switch_total_count++;
                     
-                    // Count case body statements
+                    // Count case body statements, but handle nested switches specially
                     if (case_node->body) {
                         fprintf(stderr, "DEBUG: count_statements: Case %d has %d statements\n", i, case_node->body->count);
                         for (int j = 0; j < case_node->body->count; j++) {
-                            int case_stmt_count = count_statements(case_node->body->items[j]);
+                            Node* stmt_node = case_node->body->items[j];
+                            int case_stmt_count;
+                            
+                            // Check if this statement is a nested switch
+                            // We need to look deeper since switches might be wrapped in blocks
+                            bool is_nested_switch = false;
+                            if (stmt_node->type == NODE_SWITCH) {
+                                is_nested_switch = true;
+                            } else if (stmt_node->type == NODE_BLOCK) {
+                                // Check if the block contains a switch
+                                BlockNode* block = (BlockNode*)stmt_node;
+                                if (block->statements && block->statements->count > 0) {
+                                    for (int k = 0; k < block->statements->count; k++) {
+                                        if (block->statements->items[k]->type == NODE_SWITCH) {
+                                            is_nested_switch = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            if (is_nested_switch) {
+                                // For nested switches, only count the switch header instruction
+                                // The nested switch will be processed separately and have its own break targets
+                                case_stmt_count = 1;
+                                fprintf(stderr, "DEBUG: count_statements: Case %d statement %d contains nested switch, counting as 1\n", i, j);
+                            } else {
+                                case_stmt_count = count_statements(stmt_node);
+                            }
+                            
                             switch_total_count += case_stmt_count;
                             fprintf(stderr, "DEBUG: count_statements: Case %d statement %d contributes %d, total now %d\n", i, j, case_stmt_count, switch_total_count);
                         }
@@ -742,15 +941,17 @@ static void process_statement(CompactMicrocode* mc, Node* stmt, int* addr) {
             // The break target should now be the current address after processing the switch
             fprintf(stderr, "DEBUG: process_statement: After processing switch, address is %d\n", *addr);
             
-            // Update the break target in the context to the actual final address
-            mc->loop_switch_stack[mc->stack_ptr - 1].break_target = *addr;
-            fprintf(stderr, "DEBUG: process_statement: Updated switch break target to %d\n", *addr);
+            // DO NOT update the break target here - it was already set correctly in process_switch_statement
+            // when we knew where the "}}" instruction was. Updating it here would use the wrong address
+            // after nested switches have been processed.
+            // mc->loop_switch_stack[mc->stack_ptr - 1].break_target = *addr;
+            fprintf(stderr, "DEBUG: process_statement: NOT updating switch break target (already set correctly)\n");
             
-            // Update all pending switch breaks for this switch with the correct break target
+            // DO NOT update pending switch breaks here - they already have the correct target
+            // from when the switch info was created in process_switch_statement
             for (int i = start_pending_break_count; i < mc->pending_switch_break_count; i++) {
-                mc->pending_switch_breaks[i].switch_start_addr = *addr - count_statements((Node*)switch_node);
-                fprintf(stderr, "DEBUG: Updated pending switch break %d from instruction %d to target %d\n",
-                        i, mc->pending_switch_breaks[i].instruction_index, *addr);
+                fprintf(stderr, "DEBUG: Pending switch break %d at instruction %d already has correct target\n",
+                        i, mc->pending_switch_breaks[i].instruction_index);
             }
             
             pop_context(mc); // Pop the switch context after processing
@@ -780,23 +981,31 @@ static void process_statement(CompactMicrocode* mc, Node* stmt, int* addr) {
             add_compact_instruction(mc, &break_mcode, "break;", JUMP_TYPE_BREAK, mc->stack_ptr - 1);
             
             // If this is a switch break, add it to the pending list for later resolution
+            printf("DEBUG: Processing break statement at instruction index %d, loop_type=%d, jump_target=%d\n",
+                   mc->instruction_count - 1, current_context.loop_type, jump_target);
             if (current_context.loop_type == NODE_SWITCH) {
                 if (mc->pending_switch_break_count < MAX_PENDING_SWITCH_BREAKS) {
                     mc->pending_switch_breaks[mc->pending_switch_break_count].instruction_index = mc->instruction_count - 1;
                     // Store the context stack index so we can find the correct break target later
                     // We need to find the switch context on the stack
                     int switch_context_index = -1;
+                    int switch_start_addr = -1;
                     for (int i = mc->stack_ptr - 1; i >= 0; i--) {
                         if (mc->loop_switch_stack[i].loop_type == NODE_SWITCH) {
                             switch_context_index = i;
+                            switch_start_addr = mc->loop_switch_stack[i].continue_target; // Use continue_target as switch start
                             break;
                         }
                     }
-                    mc->pending_switch_breaks[mc->pending_switch_break_count].switch_start_addr = *addr;
+                    mc->pending_switch_breaks[mc->pending_switch_break_count].switch_start_addr = switch_start_addr;
+                    printf("DEBUG: Added pending switch break %d with instruction index %d (switch_start_addr=%d)\n",
+                           mc->pending_switch_break_count, mc->instruction_count - 1, switch_start_addr);
                     mc->pending_switch_break_count++;
                 } else {
                     fprintf(stderr, "Error: Too many pending switch breaks (max %d)\n", MAX_PENDING_SWITCH_BREAKS);
                 }
+            } else {
+                printf("DEBUG: Break statement at instruction %d not added to pending list (loop_type=%d)\n", mc->instruction_count - 1, current_context.loop_type);
             }
             
             mc->jump_instructions++;
@@ -866,6 +1075,12 @@ static void process_switch_statement(CompactMicrocode* mc, SwitchNode* switch_no
     fprintf(stderr, "DEBUG: process_switch_statement: Estimated break target: %d\n", estimated_break_target);
 
     // Push the current switch context onto the stack
+    LoopSwitchContext current_switch_context = {
+        .loop_type = NODE_SWITCH, // Indicate it's a switch
+        .continue_target = *addr, // Store switch start address for break resolution
+        .break_target = estimated_break_target
+    };
+    push_context(mc, &current_switch_context);
 
     // Generate switch instruction with proper hotstate fields
     MCode switch_mcode;
@@ -911,9 +1126,50 @@ static void process_switch_statement(CompactMicrocode* mc, SwitchNode* switch_no
     // Note: Default case is handled as a CaseNode with value=NULL in the cases list above
     MCode end_switch_mcode;
     populate_mcode_instruction(mc, &end_switch_mcode, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+    
+    // Store the address where the "}}" will be placed
+    int switch_closing_addr = *addr;
+    
     add_compact_instruction(mc, &end_switch_mcode, "}}", JUMP_TYPE_DIRECT, 0);
     (*addr)++;
-    fprintf(stderr, "DEBUG: process_switch_statement: Final address after switch: %d\n", *addr);
+    
+    // The break target should be the instruction AFTER the "}}"
+    int break_jump_target = *addr;
+    
+    // Update the break target in the context to the actual final address
+    mc->loop_switch_stack[mc->stack_ptr - 1].break_target = break_jump_target;
+    fprintf(stderr, "DEBUG: process_switch_statement: Switch closing at %d, breaks should jump to %d\n",
+            switch_closing_addr, break_jump_target);
+    
+    // TWO-PASS SYSTEM: Store where breaks should jump to (after the "}}")
+    int current_switch_start_addr = mc->loop_switch_stack[mc->stack_ptr - 1].continue_target;
+    
+    // Check if we already have switch info for this switch
+    bool found = false;
+    for (int i = 0; i < mc->switch_info_count; i++) {
+        if (mc->switch_infos[i].switch_start_addr == current_switch_start_addr) {
+            // Update with the break jump target (instruction after "}}")
+            mc->switch_infos[i].switch_end_addr = break_jump_target;
+            fprintf(stderr, "DEBUG: process_switch_statement: Updated switch info for start addr %d, break target %d\n",
+                    current_switch_start_addr, break_jump_target);
+            found = true;
+            break;
+        }
+    }
+    
+    // If not found, create new switch info with break jump target
+    if (!found && mc->switch_info_count < MAX_SWITCHES) {
+        mc->switch_infos[mc->switch_info_count].switch_start_addr = current_switch_start_addr;
+        mc->switch_infos[mc->switch_info_count].switch_end_addr = break_jump_target;
+        mc->switch_infos[mc->switch_info_count].first_break_index = -1;
+        mc->switch_infos[mc->switch_info_count].break_count = 0;
+        mc->switch_info_count++;
+        fprintf(stderr, "DEBUG: process_switch_statement: Created switch info for start addr %d, break target %d\n",
+                current_switch_start_addr, break_jump_target);
+    }
+    
+    // Pop the switch context from the stack
+    pop_context(mc);
 }
 
 
@@ -1000,6 +1256,7 @@ static void add_compact_instruction(CompactMicrocode* mc, MCode* mcode, const ch
         if (jump_type == JUMP_TYPE_BREAK) {
             LoopSwitchContext ctx = peek_context(mc, CONTEXT_TYPE_LOOP_OR_SWITCH);
             resolved_jadr = ctx.break_target;
+            printf("DEBUG: add_compact_instruction: BREAK instruction at index %d, resolved_jadr=%d\n", mc->instruction_count, resolved_jadr);
         } else if (jump_type == JUMP_TYPE_CONTINUE) {
             LoopSwitchContext ctx = peek_context(mc, CONTEXT_TYPE_LOOP);
             resolved_jadr = ctx.continue_target;
@@ -1636,6 +1893,7 @@ void free_compact_microcode(CompactMicrocode* mc) {
     free(mc->switchmem);  // Free switch memory
     free(mc->pending_jumps); // Free the pending jumps array
     free(mc->pending_switch_breaks); // Free the pending switch breaks array
+    free(mc->switch_infos); // Free the switch infos array
     free(mc);
 }
 

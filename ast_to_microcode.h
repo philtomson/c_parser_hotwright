@@ -22,6 +22,15 @@ typedef struct {
     int switch_start_addr;     // Address of the SWITCH instruction this break belongs to
 } PendingSwitchBreak;
 
+// Enhanced structure for tracking switch information
+typedef struct {
+    int switch_start_addr;     // Address of the SWITCH instruction
+    int switch_end_addr;       // Actual end address (determined after processing)
+    int context_stack_index;   // Index in the loop_switch_stack
+    int first_break_index;     // Index of first break belonging to this switch
+    int break_count;           // Number of breaks belonging to this switch
+} SwitchInfo;
+
 typedef struct {
     NodeType loop_type;  // e.g., NODE_WHILE, NODE_FOR, NODE_SWITCH
     int continue_target; // Microcode address for 'continue' statements
@@ -94,6 +103,11 @@ typedef struct {
     // Pending switch break resolution
     PendingSwitchBreak* pending_switch_breaks;
     int pending_switch_break_count;
+    
+    // Switch info tracking
+    SwitchInfo* switch_infos;
+    int switch_info_count;
+    int switch_info_capacity;
 } CompactMicrocode;
 
 // Main generation function
