@@ -1086,7 +1086,17 @@ static void process_switch_statement(CompactMicrocode* mc, SwitchNode* switch_no
     MCode switch_mcode;
     // Pass switch_expression_input_num as switch_adr
     populate_mcode_instruction(mc, &switch_mcode, 0, 0, 0, 0, 0, 0, switch_id, 1, 0, 0, 0, 0, 0, 0);
-    add_switch_instruction(mc, &switch_mcode, "SWITCH", switch_id);
+    
+    // Create dynamic label that includes the variable name
+    char switch_label[128];
+    if (switch_node->expression->type == NODE_IDENTIFIER) {
+        IdentifierNode* ident = (IdentifierNode*)switch_node->expression;
+        snprintf(switch_label, sizeof(switch_label), "SWITCH (%s)", ident->name);
+    } else {
+        snprintf(switch_label, sizeof(switch_label), "SWITCH (expr)");
+    }
+    
+    add_switch_instruction(mc, &switch_mcode, switch_label, switch_id);
     (*addr)++;
     
     // Populate switch memory table
