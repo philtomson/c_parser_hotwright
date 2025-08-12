@@ -7,10 +7,20 @@
 #include <stdio.h>
 #include <stdint.h>
 
+// Constants for switch break resolution
+#define MAX_PENDING_SWITCH_BREAKS 64
+#define SWITCH_BREAK_PLACEHOLDER -1
+
 typedef enum {
     CONTEXT_TYPE_LOOP,
     CONTEXT_TYPE_LOOP_OR_SWITCH
 } ContextSearchType;
+
+// Structure for tracking switch breaks that need address resolution
+typedef struct {
+    int instruction_index;      // Index in mc->instructions where the break instruction is
+    int switch_start_addr;     // Address of the SWITCH instruction this break belongs to
+} PendingSwitchBreak;
 
 typedef struct {
     NodeType loop_type;  // e.g., NODE_WHILE, NODE_FOR, NODE_SWITCH
@@ -80,6 +90,10 @@ typedef struct {
     PendingJump* pending_jumps;
     int pending_jump_count;
     int pending_jump_capacity;
+    
+    // Pending switch break resolution
+    PendingSwitchBreak* pending_switch_breaks;
+    int pending_switch_break_count;
 } CompactMicrocode;
 
 // Main generation function
