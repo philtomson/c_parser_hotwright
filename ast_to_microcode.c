@@ -401,19 +401,27 @@ static int count_statements(Node* stmt) {
             
             // Count case statements
             if (switch_node->cases) {
+                fprintf(stderr, "DEBUG: count_statements: Switch has %d cases\n", switch_node->cases->count);
                 for (int i = 0; i < switch_node->cases->count; i++) {
                     CaseNode* case_node = (CaseNode*)switch_node->cases->items[i];
-                    // Count 1 for the case/default label itself
-                    switch_total_count++; // Add 1 for the case/default label
+                    // Don't count the case/default label itself as it doesn't increment the address
+                    // switch_total_count++; // REMOVED: Don't add 1 for the case/default label
                     
                     // Count case body statements
                     if (case_node->body) {
+                        fprintf(stderr, "DEBUG: count_statements: Case %d has %d statements\n", i, case_node->body->count);
                         for (int j = 0; j < case_node->body->count; j++) {
-                            switch_total_count += count_statements(case_node->body->items[j]);
+                            int case_stmt_count = count_statements(case_node->body->items[j]);
+                            switch_total_count += case_stmt_count;
+                            fprintf(stderr, "DEBUG: count_statements: Case %d statement %d contributes %d, total now %d\n", i, j, case_stmt_count, switch_total_count);
                         }
                     }
                 }
             }
+            // Add 1 for the closing "}}" instruction at the end of the switch
+            switch_total_count++;
+            fprintf(stderr, "DEBUG: count_statements: Final switch count is %d\n", switch_total_count);
+            
             // Debug print to check the calculated total for NODE_SWITCH
             // Assign the calculated total to the 'count' variable for this statement
             count = switch_total_count;
@@ -663,19 +671,29 @@ static void process_statement(CompactMicrocode* mc, Node* stmt, int* addr) {
         
         case NODE_SWITCH: {
             SwitchNode* switch_node = (SwitchNode*)stmt;
-            // For switch, we also push a context to handle 'break'
-            // The break_target for a switch is the address after the switch statement.
-            int switch_break_target = *addr + count_statements((Node*)switch_node);
+            fprintf(stderr, "DEBUG: process_statement: Processing switch at address %d\n", *addr);
+            
+            // Calculate break target using count_statements
+            int estimated_break_target;
             LoopSwitchContext current_switch_context = {
                 .loop_type = NODE_SWITCH, // Indicate it's a switch
                 .continue_target = -1,    // Continue is not applicable for switch
-                .break_target = switch_break_target
+                .break_target = *addr + count_statements((Node*)switch_node)
             };
+            estimated_break_target = current_switch_context.break_target;
+            fprintf(stderr, "DEBUG: process_statement: Switch break target calculated as %d\n", estimated_break_target);
+            
             push_context(mc, &current_switch_context);
-
             process_switch_statement(mc, switch_node, addr);
             
-pop_context(mc); // Pop the switch context after processing
+            // The break target should now be the current address after processing the switch
+            fprintf(stderr, "DEBUG: process_statement: After processing switch, address is %d\n", *addr);
+            
+            // Update the break target in the context to the actual final address
+            mc->loop_switch_stack[mc->stack_ptr - 1].break_target = *addr;
+            fprintf(stderr, "DEBUG: process_statement: Updated switch break target to %d\n", *addr);
+            
+            pop_context(mc); // Pop the switch context after processing
             break;
         }
         
@@ -736,6 +754,8 @@ static void process_switch_statement(CompactMicrocode* mc, SwitchNode* switch_no
         return;
     }
     
+    fprintf(stderr, "DEBUG: process_switch_statement: Starting switch at address %d\n", *addr);
+    
     // Assign unique switch ID
     int switch_id = mc->switch_count++;
     if (switch_id >= MAX_SWITCHES) {
@@ -757,6 +777,8 @@ static void process_switch_statement(CompactMicrocode* mc, SwitchNode* switch_no
     // Calculate the estimated break_target for this switch statement
     // This is the address immediately after the entire switch block
     int estimated_break_target = *addr + count_statements((Node*)switch_node);
+    fprintf(stderr, "DEBUG: process_switch_statement: Switch size calculated as %d\n", count_statements((Node*)switch_node));
+    fprintf(stderr, "DEBUG: process_switch_statement: Estimated break target: %d\n", estimated_break_target);
 
     // Push the current switch context onto the stack
 
@@ -772,6 +794,7 @@ static void process_switch_statement(CompactMicrocode* mc, SwitchNode* switch_no
     
     // Process case bodies (generate actual case target instructions)
     int num_cases = switch_node->cases ? switch_node->cases->count : 0;
+    fprintf(stderr, "DEBUG: process_switch_statement: Processing %d cases\n", num_cases);
     for (int i = 0; i < num_cases; i++) {
         CaseNode* case_node = (CaseNode*)switch_node->cases->items[i];
         
@@ -792,6 +815,7 @@ static void process_switch_statement(CompactMicrocode* mc, SwitchNode* switch_no
         
         // Process case statements
         if (case_node->body) {
+            fprintf(stderr, "DEBUG: process_switch_statement: Case %d has %d body statements\n", i, case_node->body->count);
             for (int j = 0; j < case_node->body->count; j++) {
                 process_statement(mc, case_node->body->items[j], addr);
             }
@@ -804,6 +828,7 @@ static void process_switch_statement(CompactMicrocode* mc, SwitchNode* switch_no
     populate_mcode_instruction(mc, &end_switch_mcode, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
     add_compact_instruction(mc, &end_switch_mcode, "}}", JUMP_TYPE_DIRECT, 0);
     (*addr)++;
+    fprintf(stderr, "DEBUG: process_switch_statement: Final address after switch: %d\n", *addr);
 }
 
 
