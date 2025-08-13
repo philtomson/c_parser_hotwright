@@ -29,20 +29,20 @@ typedef struct {
     int jumps;                // Number of jump instructions
 
     // Dynamic bit-width tracking (from Phase 2)
-    int max_state_val;
-    int max_mask_val;
-    int max_jadr_val;
-    int max_varsel_val;
-    int max_timersel_val;
-    int max_timerld_val;
-    int max_switch_sel_val;
-    int max_switch_adr_val;
-    int max_state_capture_val;
-    int max_var_or_timer_val;
-    int max_branch_val;
-    int max_forced_jmp_val;
-    int max_sub_val;
-    int max_rtn_val;
+    uint32_t max_state_val;
+    uint32_t max_mask_val;
+    uint32_t max_jadr_val;
+    uint32_t max_varsel_val;
+    uint32_t max_timersel_val;
+    uint32_t max_timerld_val;
+    uint32_t max_switch_sel_val;
+    uint32_t max_switch_adr_val;
+    uint32_t max_state_capture_val;
+    uint32_t max_var_or_timer_val;
+    uint32_t max_branch_val;
+    uint32_t max_forced_jmp_val;
+    uint32_t max_sub_val;
+    uint32_t max_rtn_val;
 } HotstateMicrocode;
 
 // Hotstate instruction field definitions (these will become obsolete for direct MCode access)
@@ -129,7 +129,7 @@ void free_hotstate_microcode(HotstateMicrocode* mc);
 // --- Output Generation Functions (from microcode_output.c) ---
 
 char* generate_base_filename(const char* source_filename);
-void generate_all_output_files(HotstateMicrocode* mc, const char* source_filename);
+void generate_all_output_files(CompactMicrocode* mc, const char* source_filename);
 
 // --- Validation ---
 

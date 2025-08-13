@@ -11,7 +11,7 @@ extern int debug_mode; // Declare debug_mode as external
 
 // Forward declarations for local functions (will be moved to header later)
 static int calculate_bit_width(int max_val);
-static uint64_t pack_mcode_instruction(MCode* mcode, HotstateMicrocode* mc);
+static uint64_t pack_mcode_instruction(MCode* mcode, CompactMicrocode* mc);
 static void generate_microcode_params_vh(CompactMicrocode* mc, const char* filename);
 
 // --- Hotstate-Compatible Output Generation ---
@@ -82,85 +82,76 @@ static int calculate_bit_width(int max_val) {
 // The packing order must match the hardware's unpacking order.
 // This example uses a fixed order for now, but in a real scenario,
 // this order would need to be defined and consistent.
-static uint64_t pack_mcode_instruction(MCode* mcode, HotstateMicrocode* mc) {
+static uint64_t pack_mcode_instruction(MCode* mcode, CompactMicrocode* mc) {
     uint64_t packed_word = 0;
     int current_shift = 0;
 
-    // Pack fields in a defined order (LSB to MSB for simplicity, can be changed)
-    // The order here should eventually match the INSTR_WIDTH calculation in Verilog
-    
-    // rtn (1 bit)
-    printf("DEBUG: microcode_output.c: pack_mcode_instruction: debug_mode = %d\n", debug_mode);
-    printf("DEBUG: pack_mcode_instruction: Packing rtn=%d (width=%d) at shift=%d\n", mcode->rtn, calculate_bit_width(mc->max_rtn_val), current_shift);
-    packed_word |= ((uint64_t)mcode->rtn & ((1ULL << calculate_bit_width(mc->max_rtn_val)) - 1)) << current_shift;
-    current_shift += calculate_bit_width(mc->max_rtn_val);
+    // Define bit widths based on Hotstate's structure
+    // These should ideally come from a central configuration or be derived more robustly
+    int state_width = mc->hw_ctx->state_count;
+    int mask_width = mc->hw_ctx->state_count;
+    int jadr_width = 8; // Hotstate uses 8 bits for jadr in its examples (up to 256 addresses)
+    int varsel_width = calculate_bit_width(mc->hw_ctx->input_count > 0 ? mc->hw_ctx->input_count - 1 : 0); // Handle 0 inputs
+    int timersel_width = (mc->max_timersel_val > 0) ? calculate_bit_width(mc->max_timersel_val) : 0;
+    int timerld_width = (mc->max_timerld_val > 0) ? calculate_bit_width(mc->max_timerld_val) : 0;
+    int switch_sel_width = mc->switch_offset_bits; // This is actually the switch_offset_bits from CompactMicrocode
 
-    // sub (1 bit)
-    printf("DEBUG: pack_mcode_instruction: Packing sub=%d (width=%d) at shift=%d\n", mcode->sub, calculate_bit_width(mc->max_sub_val), current_shift);
-    packed_word |= ((uint64_t)mcode->sub & ((1ULL << calculate_bit_width(mc->max_sub_val)) - 1)) << current_shift;
-    current_shift += calculate_bit_width(mc->max_sub_val);
+    // Pack fields in Hotstate's defined order (LSB to MSB)
+    // state
+    packed_word |= ((uint64_t)mcode->state & ((1ULL << state_width) - 1)) << current_shift;
+    current_shift += state_width;
 
-    // forced_jmp (1 bit)
-    printf("DEBUG: pack_mcode_instruction: Packing forced_jmp=%d (width=%d) at shift=%d\n", mcode->forced_jmp, calculate_bit_width(mc->max_forced_jmp_val), current_shift);
-    packed_word |= ((uint64_t)mcode->forced_jmp & ((1ULL << calculate_bit_width(mc->max_forced_jmp_val)) - 1)) << current_shift;
-    current_shift += calculate_bit_width(mc->max_forced_jmp_val);
+    // mask
+    packed_word |= ((uint64_t)mcode->mask & ((1ULL << mask_width) - 1)) << current_shift;
+    current_shift += mask_width;
 
-    // branch (1 bit)
-    printf("DEBUG: pack_mcode_instruction: Packing branch=%d (width=%d) at shift=%d\n", mcode->branch, calculate_bit_width(mc->max_branch_val), current_shift);
-    packed_word |= ((uint64_t)mcode->branch & ((1ULL << calculate_bit_width(mc->max_branch_val)) - 1)) << current_shift;
-    current_shift += calculate_bit_width(mc->max_branch_val);
+    // jadr
+    packed_word |= ((uint64_t)mcode->jadr & ((1ULL << jadr_width) - 1)) << current_shift;
+    current_shift += jadr_width;
 
-    // var_or_timer (1 bit)
-    printf("DEBUG: pack_mcode_instruction: Packing var_or_timer=%d (width=%d) at shift=%d\n", mcode->var_or_timer, calculate_bit_width(mc->max_var_or_timer_val), current_shift);
-    packed_word |= ((uint64_t)mcode->var_or_timer & ((1ULL << calculate_bit_width(mc->max_var_or_timer_val)) - 1)) << current_shift;
-    current_shift += calculate_bit_width(mc->max_var_or_timer_val);
+    // varSel
+    packed_word |= ((uint64_t)mcode->varSel & ((1ULL << varsel_width) - 1)) << current_shift;
+    current_shift += varsel_width;
 
-    // state_capture (1 bit)
-    printf("DEBUG: pack_mcode_instruction: Packing state_capture=%d (width=%d) at shift=%d\n", mcode->state_capture, calculate_bit_width(mc->max_state_capture_val), current_shift);
-    packed_word |= ((uint64_t)mcode->state_capture & ((1ULL << calculate_bit_width(mc->max_state_capture_val)) - 1)) << current_shift;
-    current_shift += calculate_bit_width(mc->max_state_capture_val);
+    // timerSel
+    packed_word |= ((uint64_t)mcode->timerSel & ((1ULL << timersel_width) - 1)) << current_shift;
+    current_shift += timersel_width;
+
+    // timerLd
+    packed_word |= ((uint64_t)mcode->timerLd & ((1ULL << timerld_width) - 1)) << current_shift;
+    current_shift += timerld_width;
+
+    // switch_sel
+    packed_word |= ((uint64_t)mcode->switch_sel & ((1ULL << switch_sel_width) - 1)) << current_shift;
+    current_shift += switch_sel_width;
 
     // switch_adr (1 bit)
-    printf("DEBUG: pack_mcode_instruction: Packing switch_adr=%d (width=%d) at shift=%d\n", mcode->switch_adr, calculate_bit_width(mc->max_switch_adr_val), current_shift);
-    packed_word |= ((uint64_t)mcode->switch_adr & ((1ULL << calculate_bit_width(mc->max_switch_adr_val)) - 1)) << current_shift;
-    current_shift += calculate_bit_width(mc->max_switch_adr_val);
+    packed_word |= ((uint64_t)mcode->switch_adr & 1ULL) << current_shift;
+    current_shift += 1;
 
-    // switch_sel (width based on max_switch_sel_val)
-    printf("DEBUG: pack_mcode_instruction: Packing switch_sel=%d (width=%d) at shift=%d\n", mcode->switch_sel, calculate_bit_width(mc->max_switch_sel_val), current_shift);
-    packed_word |= ((uint64_t)mcode->switch_sel & ((1ULL << calculate_bit_width(mc->max_switch_sel_val)) - 1)) << current_shift;
-    current_shift += calculate_bit_width(mc->max_switch_sel_val);
+    // state_capture (1 bit)
+    packed_word |= ((uint64_t)mcode->state_capture & 1ULL) << current_shift;
+    current_shift += 1;
 
-    // timerLd (1 bit)
-    printf("DEBUG: pack_mcode_instruction: Packing timerLd=%d (width=%d) at shift=%d\n", mcode->timerLd, calculate_bit_width(mc->max_timerld_val), current_shift);
-    packed_word |= ((uint64_t)mcode->timerLd & ((1ULL << calculate_bit_width(mc->max_timerld_val)) - 1)) << current_shift;
-    current_shift += calculate_bit_width(mc->max_timerld_val);
+    // var_or_timer (1 bit)
+    packed_word |= ((uint64_t)mcode->var_or_timer & 1ULL) << current_shift;
+    current_shift += 1;
 
-    // timerSel (width based on max_timersel_val)
-    printf("DEBUG: pack_mcode_instruction: Packing timerSel=%d (width=%d) at shift=%d\n", mcode->timerSel, calculate_bit_width(mc->max_timersel_val), current_shift);
-    packed_word |= ((uint64_t)mcode->timerSel & ((1ULL << calculate_bit_width(mc->max_timersel_val)) - 1)) << current_shift;
-    current_shift += calculate_bit_width(mc->max_timersel_val);
+    // branch (1 bit)
+    packed_word |= ((uint64_t)mcode->branch & 1ULL) << current_shift;
+    current_shift += 1;
 
-    // varSel (width based on max_varsel_val)
-    printf("DEBUG: pack_mcode_instruction: Packing varSel=%d (width=%d) at shift=%d\n", mcode->varSel, calculate_bit_width(mc->max_varsel_val), current_shift);
-    packed_word |= ((uint64_t)mcode->varSel & ((1ULL << calculate_bit_width(mc->max_varsel_val)) - 1)) << current_shift;
-    current_shift += calculate_bit_width(mc->max_varsel_val);
+    // forced_jmp (1 bit)
+    packed_word |= ((uint64_t)mcode->forced_jmp & 1ULL) << current_shift;
+    current_shift += 1;
 
-    // jadr (width based on max_jadr_val)
-    printf("DEBUG: pack_mcode_instruction: Packing jadr=%d (width=%d) at shift=%d\n", mcode->jadr, calculate_bit_width(mc->max_jadr_val), current_shift);
-    packed_word |= ((uint64_t)mcode->jadr & ((1ULL << calculate_bit_width(mc->max_jadr_val)) - 1)) << current_shift;
-    current_shift += calculate_bit_width(mc->max_jadr_val);
+    // sub (1 bit)
+    packed_word |= ((uint64_t)mcode->sub & 1ULL) << current_shift;
+    current_shift += 1;
 
-    // mask (width based on max_mask_val)
-    printf("DEBUG: pack_mcode_instruction: Packing mask=%d (width=%d) at shift=%d\n", mcode->mask, calculate_bit_width(mc->max_mask_val), current_shift);
-    packed_word |= ((uint64_t)mcode->mask & ((1ULL << calculate_bit_width(mc->max_mask_val)) - 1)) << current_shift;
-    current_shift += calculate_bit_width(mc->max_mask_val);
-
-    // state (width based on max_state_val)
-    printf("DEBUG: pack_mcode_instruction: Packing state=%d (width=%d) at shift=%d\n", mcode->state, calculate_bit_width(mc->max_state_val), current_shift);
-    packed_word |= ((uint64_t)mcode->state & ((1ULL << calculate_bit_width(mc->max_state_val)) - 1)) << current_shift;
-    current_shift += calculate_bit_width(mc->max_state_val);
-
-    printf("DEBUG: pack_mcode_instruction: Final packed_word = 0x%llx\n", packed_word);
+    // rtn (1 bit)
+    packed_word |= ((uint64_t)mcode->rtn & 1ULL) << current_shift;
+    current_shift += 1;
     return packed_word;
 }
 
@@ -212,25 +203,25 @@ void generate_smdata_mem_file(CompactMicrocode* mc, const char* filename) {
     }
     
     // Calculate hex width based on total instruction width
-    int total_instr_width = calculate_bit_width(mc->max_state_val) +
-                            calculate_bit_width(mc->max_mask_val) +
-                            calculate_bit_width(mc->max_jadr_val) +
-                            calculate_bit_width(mc->max_varsel_val) +
-                            calculate_bit_width(mc->max_timersel_val) +
-                            calculate_bit_width(mc->max_timerld_val) +
-                            calculate_bit_width(mc->max_switch_sel_val) +
-                            calculate_bit_width(mc->max_switch_adr_val) +
-                            calculate_bit_width(mc->max_state_capture_val) +
-                            calculate_bit_width(mc->max_var_or_timer_val) +
-                            calculate_bit_width(mc->max_branch_val) +
-                            calculate_bit_width(mc->max_forced_jmp_val) +
-                            calculate_bit_width(mc->max_sub_val) +
-                            calculate_bit_width(mc->max_rtn_val);
+    // Calculate total INSTR_WIDTH based on Hotstate's formula
+    // STATE_WIDTH and MASK_WIDTH are mc->hw_ctx->state_count
+    // JADR_WIDTH is 8 bits (fixed address width from Hotstate's examples)
+    // VARSEL_WIDTH is calculate_bit_width(mc->hw_ctx->input_count > 0 ? mc->hw_ctx->input_count - 1 : 0)
+    // TIMERSEL_WIDTH and TIMERLD_WIDTH are 0 if no timers are used, otherwise calculated based on max_timersel_val
+    // SWITCH_SEL_WIDTH is mc->switch_offset_bits
+    // The 7 flags (switch_adr, state_capture, var_or_timer, branch, forced_jmp, sub, rtn) are 1 bit each.
+    int total_instr_width = (mc->hw_ctx->state_count * 2) + // STATE_WIDTH + MASK_WIDTH
+                            8 + // JADR_WIDTH (fixed 8 bits)
+                            calculate_bit_width(mc->hw_ctx->input_count > 0 ? mc->hw_ctx->input_count - 1 : 0) + // VARSEL_WIDTH
+                            ((mc->max_timersel_val > 0) ? calculate_bit_width(mc->max_timersel_val) : 0) + // TIMERSEL_WIDTH
+                            ((mc->max_timerld_val > 0) ? calculate_bit_width(mc->max_timerld_val) : 0) + // TIMERLD_WIDTH
+                            mc->switch_offset_bits + // SWITCH_SEL_WIDTH
+                            7; // Fixed 1-bit flags (switch_adr, state_capture, var_or_timer, branch, forced_jmp, sub, rtn)
  
     int hex_width = (total_instr_width + 3) / 4;
     if (hex_width == 0) hex_width = 1; // Ensure at least 1 hex digit
  
-    char format_str[16];
+    char format_str[32]; // Increased size to prevent truncation warnings
     snprintf(format_str, sizeof(format_str), "%%0%dllx\n", hex_width); // Use %llx for uint64_t
  
     // Write each instruction with variable width (no masking needed)
@@ -275,6 +266,49 @@ void print_variable_mappings(HotstateMicrocode* mc, FILE* output) {
 }
 
 
+void generate_switchdata_mem_file(CompactMicrocode* mc, const char* filename) {
+    FILE* file = fopen(filename, "w");
+    if (!file) {
+        fprintf(stderr, "Error: Cannot create file '%s'\n", filename);
+        return;
+    }
+
+    // Determine the maximum possible jadr value to calculate hex_width
+    uint32_t max_jadr = 0;
+    for (int i = 0; i < mc->instruction_count; i++) {
+        if (mc->instructions[i].uword.mcode.jadr > max_jadr) {
+            max_jadr = mc->instructions[i].uword.mcode.jadr;
+        }
+    }
+    int jadr_bit_width = calculate_bit_width(max_jadr);
+    int hex_width = (jadr_bit_width + 3) / 4;
+    if (hex_width == 0) hex_width = 1; // Ensure at least 1 hex digit
+
+    char format_str[16];
+    snprintf(format_str, sizeof(format_str), "%%0%dx\n", hex_width);
+
+    // Iterate through instructions and write jadr for switch-related instructions
+    for (int i = 0; i < mc->instruction_count; i++) {
+        MCode* mcode = &mc->instructions[i].uword.mcode;
+        // Hotstate's switchdata.mem contains jump addresses.
+        // We assume here that any instruction with a switch_sel or switch_adr
+        // is part of a switch structure and its jadr is relevant.
+        // This might need refinement based on a deeper understanding of Hotstate's switch handling.
+        if (mcode->switch_sel || mcode->switch_adr) {
+            fprintf(file, format_str, mcode->jadr);
+        } else {
+            // For instructions not related to switches, write a placeholder or 0
+            // Hotstate's output.c seems to write a fixed size array, so we should too.
+            // For now, write 0.
+            fprintf(file, format_str, 0);
+        }
+    }
+
+    fclose(file);
+    printf("Generated switch data memory file: %s (width: %d hex digits)\n", filename, hex_width);
+}
+
+
 //TODO: this needs to be filled in with actual vardata
 //TODO: actuall vadata needs to be created somewhere
 void generate_vardata_mem_file(CompactMicrocode* mc, const char* filename) {
@@ -284,10 +318,12 @@ void generate_vardata_mem_file(CompactMicrocode* mc, const char* filename) {
         return;
     }
     
-    // For now, generate a simple variable mapping
-    // This would be more sophisticated in a full implementation
+    // Generate a simplified variable mapping based on input variables
+    // In Hotstate, this is a flattened "Uber LUT" which is more complex.
+    // For now, we'll output the input_number for each variable,
+    // which serves as a basic mapping.
     for (int i = 0; i < mc->hw_ctx->input_count; i++) {
-        fprintf(file, "%02x\n", i);
+        fprintf(file, "%02x\n", mc->hw_ctx->inputs[i].input_number);
     }
     
     fclose(file);
@@ -368,74 +404,78 @@ char* generate_output_filepath(const char* source_filename, const char* suffix) 
     
     // Find the last dot to remove extension
     const char* dot_pos = strrchr(source_filename, '.');
-
+ 
     // Determine the base name start and length
     const char* base_start = last_slash ? last_slash + 1 : source_filename;
     size_t base_len = dot_pos ? (size_t)(dot_pos - base_start) : strlen(base_start);
-
+ 
     // Determine the directory part
     size_t dir_len = last_slash ? (size_t)(last_slash - source_filename + 1) : 0; // +1 for the slash
-
+ 
     // Allocate memory for the full path
     char* full_path = malloc(dir_len + base_len + strlen(suffix) + 1);
     if (!full_path) {
         fprintf(stderr, "Error: Memory allocation failed for output filepath.\n");
         return NULL;
     }
-
+ 
     // Copy directory part
     if (dir_len > 0) {
         strncpy(full_path, source_filename, dir_len);
     }
     full_path[dir_len] = '\0'; // Null-terminate the directory part
-
+ 
     // Append base name
     strncat(full_path, base_start, base_len);
-
+ 
     // Append suffix
     strcat(full_path, suffix);
-
+ 
     return full_path;
 }
-
+ 
 // Debug print for generated file paths
 void debug_print_filepaths(const char* source_filename) {
     char* smdata_filepath = generate_output_filepath(source_filename, "_smdata.mem");
     char* vardata_filepath = generate_output_filepath(source_filename, "_vardata.mem");
     char* params_filepath = generate_output_filepath(source_filename, "_params.vh");
-
+ 
     printf("Debug: smdata_filepath = %s\n", smdata_filepath);
     printf("Debug: vardata_filepath = %s\n", vardata_filepath);
     printf("Debug: params_filepath = %s\n", params_filepath);
-
+ 
     free(smdata_filepath);
     free(vardata_filepath);
     free(params_filepath);
 }
-
-void generate_all_output_files(HotstateMicrocode* mc, const char* source_filename) {
+ 
+void generate_all_output_files(CompactMicrocode* mc, const char* source_filename) {
     printf("DEBUG: microcode_output.c: generate_all_output_files: debug_mode = %d\n", debug_mode);
     printf("DEBUG: generate_all_output_files: Starting output generation.\n");
     char* smdata_filepath = generate_output_filepath(source_filename, "_smdata.mem");
     char* vardata_filepath = generate_output_filepath(source_filename, "_vardata.mem");
     char* params_filepath = generate_output_filepath(source_filename, "_params.vh");
-
+    char* switchdata_filepath = generate_output_filepath(source_filename, "_switchdata.mem"); // New
+ 
     // Add debug print here
     debug_print_filepaths(source_filename);
-
-    if (!smdata_filepath || !vardata_filepath || !params_filepath) {
+ 
+    if (!smdata_filepath || !vardata_filepath || !params_filepath || !switchdata_filepath) { // Updated condition
         // Handle allocation errors, already printed inside generate_output_filepath
         free(smdata_filepath);
         free(vardata_filepath);
         free(params_filepath);
+        free(switchdata_filepath); // Free new path
         return;
     }
-    
+ 
     generate_microcode_params_vh(mc, params_filepath);
     generate_smdata_mem_file(mc, smdata_filepath);
     generate_vardata_mem_file(mc, vardata_filepath);
-    
+    generate_switchdata_mem_file(mc, switchdata_filepath); // Call new function
+ 
     free(smdata_filepath);
     free(vardata_filepath);
     free(params_filepath);
+    free(switchdata_filepath); // Free new path
 }

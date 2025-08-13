@@ -750,7 +750,7 @@ static void process_function(CompactMicrocode* mc, FunctionDefNode* func) {
     
     // Use calculated state and mask. Mask should be 7 for 3 state variables.
     MCode entry_mcode;
-    populate_mcode_instruction(mc, &entry_mcode, 4, 7, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0); // state set to 4, mask to 7, switch_sel to 0, state_capture to 1
+    populate_mcode_instruction(mc, &entry_mcode, mc->hw_ctx->initial_state_value, mc->hw_ctx->initial_mask_value, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0); // Use dynamically calculated initial state and mask
     add_compact_instruction(mc, &entry_mcode, "main(){", JUMP_TYPE_DIRECT, 0);
     (*addr)++; // Increment address for main(){
     

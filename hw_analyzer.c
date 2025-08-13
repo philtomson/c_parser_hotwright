@@ -107,6 +107,14 @@ static int assign_sequential_state_numbers(HardwareContext* ctx) {
     // Assign sequential state numbers to all state variables
     for (int i = 0; i < ctx->state_count; i++) {
         ctx->states[i].state_number = state_counter++;
+        // Populate initial_state_value based on initial_value
+        if (ctx->states[i].initial_value) {
+            ctx->initial_state_value |= (1 << ctx->states[i].state_number);
+        }
+    }
+    // Populate initial_mask_value (mask all state bits)
+    if (ctx->state_count > 0) {
+        ctx->initial_mask_value = (1 << ctx->state_count) - 1;
     }
     
     return state_counter; // Return total number of state variables
@@ -200,6 +208,10 @@ static void init_hardware_context(HardwareContext* ctx) {
     
     ctx->analysis_successful = false;
     ctx->error_message = NULL;
+
+    // Initialize initial_state_value and initial_mask_value
+    ctx->initial_state_value = 0;
+    ctx->initial_mask_value = 0;
 }
 
 static void add_state_variable(HardwareContext* ctx, VarDeclNode* var_decl) {

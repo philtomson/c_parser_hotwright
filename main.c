@@ -268,7 +268,7 @@ int main(int argc, char* argv[]) {
                                 if (optimize_ssa) {
                                     cfg = optimize_ssa_cfg(cfg, hw_ctx);
                                 }
-                                
+                                //TODO: this seems incorrect! It should be SSAMicrocode here
                                 CompactMicrocode* microcode = cfg_to_compact_microcode(cfg, hw_ctx);
                                 if (microcode) {
                                     // Print microcode table
@@ -283,6 +283,7 @@ int main(int argc, char* argv[]) {
                                     }
                                     
                                     free_compact_microcode(microcode);
+                                
                                 } else {
                                     if (optimize_ssa) {
                                         printf("Error: Failed to generate optimized SSA-based microcode\n");
@@ -292,11 +293,10 @@ int main(int argc, char* argv[]) {
                                 }
                                 
                                 free_cfg(cfg);
-                            }
-                        */
+                            */
                         }
-                        break;
-                        
+                        break; // Added break to prevent fall-through
+
                     case MICROCODE_COMPACT:
                         printf("\n--- Generating Hotstate-Compatible Microcode ---\n");
                         {
@@ -307,6 +307,11 @@ int main(int argc, char* argv[]) {
                                 
                                 // Print analysis
                                 print_compact_microcode_analysis(compact_mc, stdout);
+                                
+                                // Generate memory files if input filename provided
+                                if (input_filename) {
+                                    generate_all_output_files(compact_mc, input_filename);
+                                }
                                 
                                 free_compact_microcode(compact_mc);
                             } else {

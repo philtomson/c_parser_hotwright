@@ -351,6 +351,7 @@ void add_hotstate_instruction(HotstateMicrocode* mc, MCode mcode_val, const char
     
     mc->instruction_count++;
 
+
     // Update max_val fields for dynamic bit-width calculation
     if (mcode_val.state > mc->max_state_val) mc->max_state_val = mcode_val.state;
     if (mcode_val.mask > mc->max_mask_val) mc->max_mask_val = mcode_val.mask;

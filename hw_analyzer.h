@@ -1,6 +1,7 @@
 #ifndef HW_ANALYZER_H
 #define HW_ANALYZER_H
 
+#include <stdint.h> // For uint32_t
 #include "ast.h"
 #include <stdbool.h>
 
@@ -46,6 +47,9 @@ typedef struct {
     // Analysis results
     bool analysis_successful;
     char* error_message;
+
+    uint32_t initial_state_value; // Combined initial state value for all state variables
+    uint32_t initial_mask_value;  // Combined initial mask for all state variables
 } HardwareContext;
 
 // --- Core API Functions ---
