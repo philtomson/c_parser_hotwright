@@ -90,11 +90,15 @@ static uint64_t pack_mcode_instruction(MCode* mcode, CompactMicrocode* mc) {
     // These should ideally come from a central configuration or be derived more robustly
     int state_width = mc->hw_ctx->state_count;
     int mask_width = mc->hw_ctx->state_count;
-    int jadr_width = 8; // Hotstate uses 8 bits for jadr in its examples (up to 256 addresses)
-    int varsel_width = calculate_bit_width(mc->hw_ctx->input_count > 0 ? mc->hw_ctx->input_count - 1 : 0); // Handle 0 inputs
+    // JADR_WIDTH is 8 bits (fixed address width as per Hotstate examples)
+    int jadr_width = 8;
+    // Harmonized varsel_width: Ensure mc->hw_ctx->input_count accurately reflects hotstate's gvarSel intent
+    int varsel_width = calculate_bit_width(mc->hw_ctx->input_count > 0 ? mc->hw_ctx->input_count - 1 : 0);
+    // Harmonized timersel_width and timerld_width: Ensure max_timersel_val/max_timerld_val align with hotstate's gTimers
     int timersel_width = (mc->max_timersel_val > 0) ? calculate_bit_width(mc->max_timersel_val) : 0;
     int timerld_width = (mc->max_timerld_val > 0) ? calculate_bit_width(mc->max_timerld_val) : 0;
-    int switch_sel_width = mc->switch_offset_bits; // This is actually the switch_offset_bits from CompactMicrocode
+    // Harmonized switch_sel_width: Dynamically determined based on the maximum switch selection value, aligning with hotstate's gSwitches
+    int switch_sel_width = calculate_bit_width(mc->max_switch_sel_val);
 
     // Pack fields in Hotstate's defined order (LSB to MSB)
     // state
@@ -152,6 +156,17 @@ static uint64_t pack_mcode_instruction(MCode* mcode, CompactMicrocode* mc) {
     // rtn (1 bit)
     packed_word |= ((uint64_t)mcode->rtn & 1ULL) << current_shift;
     current_shift += 1;
+    // rtn (1 bit)
+    packed_word |= ((uint64_t)mcode->rtn & 1ULL) << current_shift;
+    current_shift += 1;
+    
+    // Check for overflow (conceptual, actual multi-word packing would be handled here)
+    if (current_shift > 64) {
+        fprintf(stderr, "Warning: Microcode instruction bit width (%d) exceeds 64 bits. Multi-word packing is required.\n", current_shift);
+        // In full implementation, this would involve packing into multiple uint64_t values
+        // For now, this serves as a detection and warning.
+    }
+
     return packed_word;
 }
 
@@ -211,14 +226,13 @@ void generate_smdata_mem_file(CompactMicrocode* mc, const char* filename) {
     // SWITCH_SEL_WIDTH is mc->switch_offset_bits
     // The 7 flags (switch_adr, state_capture, var_or_timer, branch, forced_jmp, sub, rtn) are 1 bit each.
     int total_instr_width = (mc->hw_ctx->state_count * 2) + // STATE_WIDTH + MASK_WIDTH
-                            8 + // JADR_WIDTH (fixed 8 bits)
+                            8 + // JADR_WIDTH (fixed 8 bits as per Hotstate examples)
                             calculate_bit_width(mc->hw_ctx->input_count > 0 ? mc->hw_ctx->input_count - 1 : 0) + // VARSEL_WIDTH
-                            ((mc->max_timersel_val > 0) ? calculate_bit_width(mc->max_timersel_val) : 0) + // TIMERSEL_WIDTH
-                            ((mc->max_timerld_val > 0) ? calculate_bit_width(mc->max_timerld_val) : 0) + // TIMERLD_WIDTH
-                            mc->switch_offset_bits + // SWITCH_SEL_WIDTH
+                            (2 * mc->timer_count) + // TIMERSEL_WIDTH + TIMERLD_WIDTH (2 bits per timer)
+                            calculate_bit_width(mc->switch_count - 1) + // SWITCH_SEL_WIDTH (bit width of total switches)
                             7; // Fixed 1-bit flags (switch_adr, state_capture, var_or_timer, branch, forced_jmp, sub, rtn)
- 
-    int hex_width = (total_instr_width + 3) / 4;
+        
+    int hex_width = total_instr_width / 4 + 1; // Match Hotstate's smdata_nibs calculation
     if (hex_width == 0) hex_width = 1; // Ensure at least 1 hex digit
  
     char format_str[32]; // Increased size to prevent truncation warnings
@@ -273,35 +287,22 @@ void generate_switchdata_mem_file(CompactMicrocode* mc, const char* filename) {
         return;
     }
 
-    // Determine the maximum possible jadr value to calculate hex_width
-    uint32_t max_jadr = 0;
-    for (int i = 0; i < mc->instruction_count; i++) {
-        if (mc->instructions[i].uword.mcode.jadr > max_jadr) {
-            max_jadr = mc->instructions[i].uword.mcode.jadr;
-        }
-    }
-    int jadr_bit_width = calculate_bit_width(max_jadr);
+    // Calculate the total size of the switch memory based on hotstate's logic
+    // This assumes mc->switch_count and mc->switch_offset_bits are correctly populated
+    int total_switchmem_size = mc->switch_count * (1 << mc->switch_offset_bits);
+
+    // Determine the hex width needed for jump addresses (jadr)
+    // Use mc->max_jadr_val for this, as it's the maximum possible jump target
+    int jadr_bit_width = calculate_bit_width(mc->max_jadr_val);
     int hex_width = (jadr_bit_width + 3) / 4;
     if (hex_width == 0) hex_width = 1; // Ensure at least 1 hex digit
 
     char format_str[16];
     snprintf(format_str, sizeof(format_str), "%%0%dx\n", hex_width);
 
-    // Iterate through instructions and write jadr for switch-related instructions
-    for (int i = 0; i < mc->instruction_count; i++) {
-        MCode* mcode = &mc->instructions[i].uword.mcode;
-        // Hotstate's switchdata.mem contains jump addresses.
-        // We assume here that any instruction with a switch_sel or switch_adr
-        // is part of a switch structure and its jadr is relevant.
-        // This might need refinement based on a deeper understanding of Hotstate's switch handling.
-        if (mcode->switch_sel || mcode->switch_adr) {
-            fprintf(file, format_str, mcode->jadr);
-        } else {
-            // For instructions not related to switches, write a placeholder or 0
-            // Hotstate's output.c seems to write a fixed size array, so we should too.
-            // For now, write 0.
-            fprintf(file, format_str, 0);
-        }
+    // Iterate through the populated mc->switchmem and write to file
+    for (int i = 0; i < total_switchmem_size; i++) {
+        fprintf(file, format_str, mc->switchmem[i]);
     }
 
     fclose(file);
@@ -318,12 +319,22 @@ void generate_vardata_mem_file(CompactMicrocode* mc, const char* filename) {
         return;
     }
     
-    // Generate a simplified variable mapping based on input variables
-    // In Hotstate, this is a flattened "Uber LUT" which is more complex.
-    // For now, we'll output the input_number for each variable,
-    // which serves as a basic mapping.
-    for (int i = 0; i < mc->hw_ctx->input_count; i++) {
-        fprintf(file, "%02x\n", mc->hw_ctx->inputs[i].input_number);
+    // Hotstate's vardata.mem size is gvarSel * 2^numVars
+    // In c_parser, gvarSel corresponds to mc->hw_ctx->input_count (number of distinct input variables processed)
+    // For numVars, we will use mc->hw_ctx->input_count as the total number of bits representing the input variables
+    // This is a simplification, as a true "numVars" might represent a global input bus width.
+
+    int total_vardata_entries;
+    if (mc->hw_ctx->input_count == 0) {
+        total_vardata_entries = 1; // If no input variables, still output one entry (e.g., for default state)
+    } else {
+        total_vardata_entries = mc->hw_ctx->input_count * (1 << mc->hw_ctx->input_count);
+    }
+    
+    // For now, generate placeholder data, but with the correct size and format
+    for (int i = 0; i < total_vardata_entries; i++) {
+        // Output a placeholder value, e.g., 0 or i % 2
+        fprintf(file, "%x\n", 0); // Hotstate uses %x for single hex digit
     }
     
     fclose(file);

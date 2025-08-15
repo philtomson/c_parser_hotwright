@@ -77,7 +77,6 @@ int main(int argc, char* argv[]) {
     bool generate_testbench = false;
     bool generate_all_hdl = false;
     bool optimize_ssa = false;
-    
     // Microcode generation modes
     typedef enum {
         MICROCODE_NONE,        // No microcode generation
@@ -307,10 +306,12 @@ int main(int argc, char* argv[]) {
                                 
                                 // Print analysis
                                 print_compact_microcode_analysis(compact_mc, stdout);
-                                
+
                                 // Generate memory files if input filename provided
                                 if (input_filename) {
                                     generate_all_output_files(compact_mc, input_filename);
+                                } else {
+                                    fprintf(stderr, "Warning: Cannot generate .mem files without an input filename.\n");
                                 }
                                 
                                 free_compact_microcode(compact_mc);

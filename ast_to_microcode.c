@@ -274,6 +274,21 @@ CompactMicrocode* ast_to_compact_microcode(Node* ast_root, HardwareContext* hw_c
     mc->pending_jump_count = 0;
     mc->pending_jump_capacity = 16;
 
+    // Insert initial instruction at address 0 (Hotstate compatibility)
+    MCode initial_mcode = {0}; // Initialize all fields to 0
+    initial_mcode.state = mc->hw_ctx->initial_state_value;
+    initial_mcode.mask = mc->hw_ctx->initial_mask_value;
+    initial_mcode.forced_jmp = 1; // Forced jump to next instruction
+
+    // Add this instruction to the microcode
+    // We explicitly set the instruction_count to 0 before adding
+    // so it correctly becomes the first instruction at index 0.
+    mc->instruction_count = 0; // Ensure it's at index 0
+    add_compact_instruction(mc, &initial_mcode, "INITIAL_STATE", JUMP_TYPE_DIRECT, 0);
+    // The add_compact_instruction function increments instruction_count internally.
+    // So after this call, mc->instruction_count will be 1.
+    // Subsequent instructions will naturally start from address 1.
+
     // Initialize pending switch break resolution
     mc->pending_switch_breaks = (PendingSwitchBreak*)malloc(sizeof(PendingSwitchBreak) * MAX_PENDING_SWITCH_BREAKS);
     if (mc->pending_switch_breaks == NULL) {
