@@ -4,6 +4,7 @@
 #include "ast.h"
 #include "microcode_defs.h"
 #include "hw_analyzer.h"
+#include "expression_evaluator.h" // Include for SimulatedExpression
 #include <stdio.h>
 #include <stdint.h>
 
@@ -53,7 +54,15 @@ typedef struct {
     int direct_address;                 // Used for JUMP_TYPE_DIRECT, stores the absolute address
 } PendingJump;
 
-// Compact microcode structure
+// Structure to hold information about a conditional expression that depends on input variables
+typedef struct {
+    Node* expression_node; // Pointer to the AST node for the conditional expression
+    int varsel_id;         // Unique ID for this expression, corresponds to a section in vardata_lut
+    // For the Uber LUT, this will point to the evaluated expression's truth table
+    struct SimulatedExpression* sim_expr; // Forward declaration
+} ConditionalExpressionInfo;
+
+// Structure to represent a simulated expression for building the Uber LUT
 typedef struct {
     Code* instructions; // Array of new Code structs
     int instruction_count;
@@ -78,6 +87,14 @@ typedef struct {
     int state_assignments;
     int branch_instructions;
     int jump_instructions;
+
+    // Uber LUT (vardata) management
+    ConditionalExpressionInfo* conditional_expressions;
+    int conditional_expression_count;
+    int conditional_expression_capacity;
+
+    uint8_t* vardata_lut;
+    int vardata_lut_size;
 
     uint32_t max_jadr_val;
     uint32_t max_varsel_val;

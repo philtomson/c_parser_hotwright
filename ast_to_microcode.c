@@ -4,6 +4,7 @@
 #include "hw_analyzer.h"       // For HardwareContext and HardwareStateVar
 #include "lexer.h"             // For TOKEN_
 #include "cfg_to_microcode.h"  // For HotstateMicrocode and HOTSTATE_ macros
+#include "expression_evaluator.h" // New: For SimulatedExpression and evaluator functions
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
@@ -59,7 +60,6 @@ static void process_switch_statement(CompactMicrocode* mc, SwitchNode* switch_no
 static void process_expression(CompactMicrocode* mc, Node* expr, int* addr);
 static void generate_expected_sequence(CompactMicrocode* mc, int* addr);
 static void process_for_loop(CompactMicrocode* mc, ForNode* for_node, int* addr);
-
 // Hotstate compatibility functions
 static int get_state_number_for_variable(const char* var_name, HardwareContext* hw_ctx);
 static void calculate_hotstate_fields(AssignmentNode* assign, HardwareContext* hw_ctx, int* state_out, int* mask_out);
@@ -74,6 +74,8 @@ static void push_context(CompactMicrocode* mc, LoopSwitchContext* context);
 static void pop_context(CompactMicrocode* mc);
 static void add_pending_jump(CompactMicrocode* mc, int instruction_index, int target_instruction_address, bool is_exit_jump);
 static void resize_pending_jumps(CompactMicrocode* mc);
+static void add_conditional_expression(CompactMicrocode* mc, Node* expression_node, int varsel_id);
+static void resize_conditional_expressions(CompactMicrocode* mc);
 
 static void push_context(CompactMicrocode* mc, LoopSwitchContext* context) {
     if(mc->stack_ptr >= mc->stack_capacity) {
@@ -94,15 +96,34 @@ static void add_pending_jump(CompactMicrocode* mc, int instruction_index, int ta
     mc->pending_jumps[mc->pending_jump_count].is_exit_jump = is_exit_jump;
     mc->pending_jump_count++;
 }
+ 
+ static void resize_pending_jumps(CompactMicrocode* mc) {
+     mc->pending_jump_capacity *= 2;
+     mc->pending_jumps = realloc(mc->pending_jumps, sizeof(PendingJump) * mc->pending_jump_capacity);
+     if (mc->pending_jumps == NULL) {
+         fprintf(stderr, "Error: Failed to reallocate pending_jumps array.\n");
+         exit(EXIT_FAILURE); // Or handle error appropriately
+     }
+ }
 
-static void resize_pending_jumps(CompactMicrocode* mc) {
-    mc->pending_jump_capacity *= 2;
-    mc->pending_jumps = realloc(mc->pending_jumps, sizeof(PendingJump) * mc->pending_jump_capacity);
-    if (mc->pending_jumps == NULL) {
-        fprintf(stderr, "Error: Failed to reallocate pending_jumps array.\n");
-        exit(EXIT_FAILURE); // Or handle error appropriately
-    }
-}
+ static void resize_conditional_expressions(CompactMicrocode* mc) {
+     mc->conditional_expression_capacity *= 2;
+     mc->conditional_expressions = realloc(mc->conditional_expressions, sizeof(ConditionalExpressionInfo) * mc->conditional_expression_capacity);
+     if (mc->conditional_expressions == NULL) {
+         fprintf(stderr, "Error: Failed to reallocate conditional_expressions array.\n");
+         exit(EXIT_FAILURE);
+     }
+ }
+
+ static void add_conditional_expression(CompactMicrocode* mc, Node* expression_node, int varsel_id) {
+     if (mc->conditional_expression_count >= mc->conditional_expression_capacity) {
+         resize_conditional_expressions(mc);
+     }
+     mc->conditional_expressions[mc->conditional_expression_count].expression_node = expression_node;
+     mc->conditional_expressions[mc->conditional_expression_count].varsel_id = varsel_id;
+     mc->conditional_expressions[mc->conditional_expression_count].sim_expr = NULL; // Will be populated later
+     mc->conditional_expression_count++;
+ }
 
 static void pop_context(CompactMicrocode* mc){
     if (mc->stack_ptr > 0) {
@@ -262,12 +283,27 @@ CompactMicrocode* ast_to_compact_microcode(Node* ast_root, HardwareContext* hw_c
     mc->max_sub_val = 0;
     mc->max_rtn_val = 0;
 
+    // Initialize Uber LUT (vardata) management
+    mc->conditional_expressions = (ConditionalExpressionInfo*)malloc(sizeof(ConditionalExpressionInfo) * 16); // Initial capacity
+    if (mc->conditional_expressions == NULL) {
+        fprintf(stderr, "Error: Failed to allocate conditional_expressions.\n");
+        free(mc->instructions);
+        free(mc->switchmem);
+        free(mc);
+        return NULL;
+    }
+    mc->conditional_expression_count = 0;
+    mc->conditional_expression_capacity = 16;
+    mc->vardata_lut = NULL; // Will be allocated later
+    mc->vardata_lut_size = 0;
+
     // Initialize pending jump resolution
     mc->pending_jumps = (PendingJump*)malloc(sizeof(PendingJump) * 16); // Initial capacity
     if (mc->pending_jumps == NULL) {
         fprintf(stderr, "Error: Failed to allocate pending_jumps.\n");
         free(mc->instructions);
         free(mc->switchmem);
+        free(mc->conditional_expressions); // Free conditional_expressions as well
         free(mc);
         return NULL;
     }
@@ -349,6 +385,73 @@ CompactMicrocode* ast_to_compact_microcode(Node* ast_root, HardwareContext* hw_c
     
     // Resolve switch break addresses after all microcode has been generated
     resolve_switch_break_addresses(mc);
+    
+    // Phase 2.3.2: Call create_simulated_expression and eval_simulated_expression for collected conditional expressions
+    // This needs to happen after all microcode is generated and addresses are resolved,
+    // as evaluation might depend on final instruction counts or addresses for context.
+    if (mc->conditional_expression_count > 0) {
+        fprintf(stderr, "DEBUG: Evaluating %d conditional expressions for Uber LUT.\n", mc->conditional_expression_count);
+        // Determine the total number of input variables in the hardware context
+        // This is needed to calculate the full LUT size (2^num_total_input_vars)
+        int num_total_input_vars = mc->hw_ctx->input_count; // Assuming input_count is the correct measure
+        fprintf(stderr, "DEBUG: num_total_input_vars: %d\n", num_total_input_vars);
+
+        for (int i = 0; i < mc->conditional_expression_count; i++) {
+            ConditionalExpressionInfo* info = &mc->conditional_expressions[i];
+            fprintf(stderr, "DEBUG: Creating and evaluating simulated expression for varsel_id %d.\n", info->varsel_id);
+            info->sim_expr = create_simulated_expression(info->expression_node, mc->hw_ctx);
+            if (info->sim_expr) {
+                eval_simulated_expression(info->sim_expr, mc->hw_ctx, num_total_input_vars);
+                fprintf(stderr, "DEBUG: sim_expr->LUT_size for varsel_id %d: %d\n", info->varsel_id, info->sim_expr->LUT_size);
+                fprintf(stderr, "DEBUG: sim_expr->dependent_input_mask for varsel_id %d: 0x%x\n", info->varsel_id, info->sim_expr->dependent_input_mask);
+                fprintf(stderr, "DEBUG: sim_expr->LUT for varsel_id %d: ", info->varsel_id);
+                for (int j = 0; j < info->sim_expr->LUT_size; j++) {
+                    fprintf(stderr, "%d ", info->sim_expr->LUT[j]);
+                }
+                fprintf(stderr, "\n");
+            } else {
+                fprintf(stderr, "Error: Failed to create simulated expression for varsel_id %d.\n", info->varsel_id);
+            }
+        }
+
+        // Allocate and populate vardata_lut
+        mc->vardata_lut_size = mc->conditional_expression_count * (1 << num_total_input_vars);
+        mc->vardata_lut = (uint8_t*)malloc(sizeof(uint8_t) * mc->vardata_lut_size);
+        if (!mc->vardata_lut) {
+            fprintf(stderr, "Error: Failed to allocate vardata_lut.\n");
+            exit(EXIT_FAILURE);
+        }
+        fprintf(stderr, "DEBUG: Allocated vardata_lut of size: %d\n", mc->vardata_lut_size);
+
+        for (int i = 0; i < mc->conditional_expression_count; i++) {
+            ConditionalExpressionInfo* info = &mc->conditional_expressions[i];
+            if (info->sim_expr && info->sim_expr->LUT) {
+                // Copy the LUT for this expression into the main vardata_lut
+                // The position in vardata_lut is determined by the varsel_id
+                // Assuming varsel_id maps directly to the block index in vardata_lut
+                memcpy(mc->vardata_lut + (info->varsel_id * (1 << num_total_input_vars)),
+                       info->sim_expr->LUT,
+                       (1 << num_total_input_vars) * sizeof(uint8_t));
+            } else {
+                fprintf(stderr, "Warning: No LUT found for varsel_id %d. Skipping copy.\n", info->varsel_id);
+                // Optionally, fill with zeros or a default value
+                memset(mc->vardata_lut + (info->varsel_id * (1 << num_total_input_vars)),
+                       0,
+                       (1 << num_total_input_vars) * sizeof(uint8_t));
+            }
+        }
+        fprintf(stderr, "DEBUG: Final vardata_lut content: ");
+        for (int i = 0; i < mc->vardata_lut_size; i++) {
+            fprintf(stderr, "%d ", mc->vardata_lut[i]);
+        }
+        fprintf(stderr, "\n");
+    }
+    
+    // Write the vardata_lut to file
+    // Determine the output filename based on the input source file name
+    //char output_filename[256];
+    //snprintf(output_filename, sizeof(output_filename), "examples/simple/simple_vardata.mem"); // Hardcoded for now
+    //write_vardata_mem_file(mc, output_filename);
     
     return mc;
 }
@@ -832,9 +935,11 @@ static void process_statement(CompactMicrocode* mc, Node* stmt, int* addr) {
             
             // Generate the while loop header instruction (jumps to loop_exit_addr if condition is false)
             MCode while_mcode;
-            populate_mcode_instruction(mc, &while_mcode, 0, 0, 0, mc->var_sel_counter++, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0); // jadr placeholder, branch=1, state_capture=1, forced_jmp=0
+            int current_varsel_id = mc->var_sel_counter++;
+            populate_mcode_instruction(mc, &while_mcode, 0, 0, 0, current_varsel_id, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0); // jadr placeholder, branch=1, state_capture=1, forced_jmp=0
             add_compact_instruction(mc, &while_mcode, while_full_label, JUMP_TYPE_EXIT, mc->exit_address);
             (*addr)++;
+            add_conditional_expression(mc, while_node->condition, current_varsel_id);
             
             free(condition_lable_str);
             // Process while body statements
@@ -881,8 +986,10 @@ static void process_statement(CompactMicrocode* mc, Node* stmt, int* addr) {
             int jump_addr = calculate_jump_address(mc, if_node, *addr);
             
             MCode if_mcode;
-            populate_mcode_instruction(mc, &if_mcode, 0, 0, jump_addr, mc->var_sel_counter++, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0);
+            int current_varsel_id = mc->var_sel_counter++;
+            populate_mcode_instruction(mc, &if_mcode, 0, 0, jump_addr, current_varsel_id, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0);
             char if_full_label[256];
+            add_conditional_expression(mc, if_node->condition, current_varsel_id);
             snprintf(if_full_label, sizeof(if_full_label), "if (%s) {", condition_label);
             add_compact_instruction(mc, &if_mcode, if_full_label, JUMP_TYPE_DIRECT, calculate_jump_address(mc, if_node, *addr));
             mc->branch_instructions++;
@@ -1100,7 +1207,8 @@ static void process_switch_statement(CompactMicrocode* mc, SwitchNode* switch_no
     // Generate switch instruction with proper hotstate fields
     MCode switch_mcode;
     // Pass switch_expression_input_num as switch_adr
-    populate_mcode_instruction(mc, &switch_mcode, 0, 0, 0, 0, 0, 0, switch_id, 1, 0, 0, 0, 0, 0, 0);
+    populate_mcode_instruction(mc, &switch_mcode, 0, 0, 0, mc->var_sel_counter++, 0, 0, switch_id, 1, 0, 0, 0, 0, 0, 0);
+    add_conditional_expression(mc, switch_node->expression, mc->var_sel_counter - 1);
     
     // Create dynamic label that includes the variable name
     char switch_label[128];
@@ -1545,6 +1653,7 @@ static void process_assignment(CompactMicrocode* mc, AssignmentNode* assign, int
     }
 }
 
+
 // Helper function to reconstruct source code from AST nodes
 static char* reconstruct_source_code(Node* node) {
     if (!node) return strdup("unknown_null");
@@ -1919,6 +2028,8 @@ void free_compact_microcode(CompactMicrocode* mc) {
     free(mc->pending_jumps); // Free the pending jumps array
     free(mc->pending_switch_breaks); // Free the pending switch breaks array
     free(mc->switch_infos); // Free the switch infos array
+    free(mc->conditional_expressions); // Free conditional_expressions
+    free(mc->vardata_lut); // Free vardata_lut
     free(mc);
 }
 

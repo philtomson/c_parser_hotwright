@@ -319,22 +319,23 @@ void generate_vardata_mem_file(CompactMicrocode* mc, const char* filename) {
         return;
     }
     
-    // Hotstate's vardata.mem size is gvarSel * 2^numVars
-    // In c_parser, gvarSel corresponds to mc->hw_ctx->input_count (number of distinct input variables processed)
-    // For numVars, we will use mc->hw_ctx->input_count as the total number of bits representing the input variables
-    // This is a simplification, as a true "numVars" might represent a global input bus width.
-
-    int total_vardata_entries;
-    if (mc->hw_ctx->input_count == 0) {
-        total_vardata_entries = 1; // If no input variables, still output one entry (e.g., for default state)
+    if (!mc->vardata_lut || mc->vardata_lut_size == 0) {
+        fprintf(stderr, "Warning: No vardata_lut to write or LUT is empty. Writing zeros.\n");
+        // Fallback to writing zeros if LUT is empty, matching previous behavior
+        int total_vardata_entries;
+        if (mc->hw_ctx->input_count == 0) {
+            total_vardata_entries = 1;
+        } else {
+            total_vardata_entries = mc->hw_ctx->input_count * (1 << mc->hw_ctx->input_count);
+        }
+        for (int i = 0; i < total_vardata_entries; i++) {
+            fprintf(file, "%x\n", 0);
+        }
     } else {
-        total_vardata_entries = mc->hw_ctx->input_count * (1 << mc->hw_ctx->input_count);
-    }
-    
-    // For now, generate placeholder data, but with the correct size and format
-    for (int i = 0; i < total_vardata_entries; i++) {
-        // Output a placeholder value, e.g., 0 or i % 2
-        fprintf(file, "%x\n", 0); // Hotstate uses %x for single hex digit
+        fprintf(stderr, "DEBUG: Writing %d entries from vardata_lut to %s\n", mc->vardata_lut_size, filename);
+        for (int i = 0; i < mc->vardata_lut_size; i++) {
+            fprintf(file, "%d\n", mc->vardata_lut[i]); // Write actual LUT values
+        }
     }
     
     fclose(file);

@@ -3,7 +3,7 @@ CFLAGS = -Wall -Wextra -g -std=c99
 LDFLAGS = -lm
 
 # Source files
-SRCS = lexer.c parser.c ast.c cfg.c cfg_builder.c cfg_utils.c hw_analyzer.c cfg_to_microcode.c ast_to_microcode.c ssa_optimizer.c microcode_output.c verilog_generator.c preprocessor.c
+SRCS = lexer.c parser.c ast.c cfg.c cfg_builder.c cfg_utils.c hw_analyzer.c cfg_to_microcode.c ast_to_microcode.c ssa_optimizer.c microcode_output.c verilog_generator.c preprocessor.c expression_evaluator.c
 OBJS = $(SRCS:.c=.o)
 
 # Test programs
@@ -41,6 +41,7 @@ microcode_output.o: microcode_output.c cfg_to_microcode.h cfg.h hw_analyzer.h mi
 verilog_generator.o: verilog_generator.c verilog_generator.h cfg_to_microcode.h
 preprocessor.o: preprocessor.c preprocessor.h lexer.h
 main.o: main.c parser.h lexer.h ast.h cfg.h cfg_builder.h cfg_utils.h hw_analyzer.h cfg_to_microcode.h ssa_optimizer.h verilog_generator.h preprocessor.h
+expression_evaluator.o: expression_evaluator.c expression_evaluator.h ast.h lexer.h hw_analyzer.h
 test_cfg.o: test_cfg.c parser.h lexer.h ast.h cfg.h cfg_builder.h cfg_utils.h
 
 # Clean
