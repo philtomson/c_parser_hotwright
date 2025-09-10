@@ -40,6 +40,7 @@ A recursive descent C parser that builds an Abstract Syntax Tree (AST), generate
 ## Building
 
 ```bash
+cd src
 make clean
 make all
 ```
@@ -82,22 +83,22 @@ This creates DOT files and PNG images showing the control flow graphs.
 
 ```bash
 # Analyze hardware constructs (state and input variables)
-./c_parser --hardware test/test_hardware_local.c
+./c_parser --hardware ../test/test_hardware_local.c
 
 # Generate hotstate-compatible microcode
-./c_parser --microcode test/test_hardware_local.c
+./c_parser --microcode-hs ../test/test_hardware_local.c
 
 # Generate Verilog HDL module
-./c_parser --verilog test/test_hardware_local.c
+./c_parser --verilog ../test/test_hardware_local.c
 
 # Generate Verilog testbench
-./c_parser --testbench test/test_hardware_local.c
+./c_parser --testbench ../test/test_hardware_local.c
 
 # Generate complete HDL package (module, testbench, stimulus, makefile)
-./c_parser --all-hdl test/test_hardware_local.c
+./c_parser --all-hdl ../test/test_hardware_local.c
 
 # Combine multiple options
-./c_parser --hardware --microcode --verilog test/test_hardware_local.c
+./c_parser --hardware --microcode-hs --verilog test/test_hardware_local.c
 ```
 
 #### Hardware Variable Patterns
