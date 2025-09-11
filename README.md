@@ -10,6 +10,7 @@ A recursive descent C parser that builds an Abstract Syntax Tree (AST), generate
 - **Enhanced Error Reporting**: Precise error messages with line and column numbers
 - **Supported Language Constructs**:
   - Variable declarations (`int x = 5;`, `bool flag = true;`)
+  - Arrays and initialization lists
   - **C23 `_BitInt` Types**: Bit-precise integers with indexing (`_BitInt(8) x = {1,0,1,1,0,0,1,0};`)
   - Arithmetic expressions with proper precedence
   - Control structures:
