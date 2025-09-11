@@ -31,7 +31,7 @@ void print_hotstate_microcode_table(HotstateMicrocode* mc, FILE* output) {
         uint32_t state = mcode->state;
         uint32_t mask = mcode->mask;
         uint32_t jadr = mcode->jadr;
-        fprintf(stderr, "DEBUG: print_hotstate_microcode_table: Reading jadr=%d at index %d\n", jadr, i);
+        print_debug("DEBUG: print_hotstate_microcode_table: Reading jadr=%d at index %d\n", jadr, i);
         uint32_t varsel = mcode->varSel;
         uint32_t timer_sel = mcode->timerSel;
         uint32_t timer_ld = mcode->timerLd;
@@ -332,7 +332,7 @@ void generate_vardata_mem_file(CompactMicrocode* mc, const char* filename) {
             fprintf(file, "%x\n", 0);
         }
     } else {
-        fprintf(stderr, "DEBUG: Writing %d entries from vardata_lut to %s\n", mc->vardata_lut_size, filename);
+        print_debug("DEBUG: Writing %d entries from vardata_lut to %s\n", mc->vardata_lut_size, filename);
         for (int i = 0; i < mc->vardata_lut_size; i++) {
             fprintf(file, "%d\n", mc->vardata_lut[i]); // Write actual LUT values
         }
@@ -462,8 +462,8 @@ void debug_print_filepaths(const char* source_filename) {
 }
  
 void generate_all_output_files(CompactMicrocode* mc, const char* source_filename) {
-    printf("DEBUG: microcode_output.c: generate_all_output_files: debug_mode = %d\n", debug_mode);
-    printf("DEBUG: generate_all_output_files: Starting output generation.\n");
+    print_debug("DEBUG: microcode_output.c: generate_all_output_files: debug_mode = %d\n", debug_mode);
+    print_debug("DEBUG: generate_all_output_files: Starting output generation.\n");
     char* smdata_filepath = generate_output_filepath(source_filename, "_smdata.mem");
     char* vardata_filepath = generate_output_filepath(source_filename, "_vardata.mem");
     char* params_filepath = generate_output_filepath(source_filename, "_params.vh");

@@ -586,7 +586,7 @@ static Node* parse_for_statement(Parser* p) {
 }
 
 static Node* parse_statement(Parser* p) {
-    fprintf(stderr, "DEBUG: parse_statement: current_token type %d value '%s'\n", current_token(p).type, current_token(p).value);
+    print_debug("DEBUG: parse_statement: current_token type %d value '%s'\n", current_token(p).type, current_token(p).value);
     // check for a label: IDENTIFIER followed by a COLON
     if (current_token(p).type == TOKEN_IDENTIFIER && peek_token(p).type == TOKEN_COLON) {
         Token label_tok = current_token(p);
@@ -647,7 +647,7 @@ static Node* parse_block_statement(Parser* p) {
     while(current_token(p).type != TOKEN_RBRACE && current_token(p).type != TOKEN_EOF) {
         Node* stmt = parse_statement(p);
         add_node_to_list(block->statements, stmt);
-        fprintf(stderr, "DEBUG: parse_block_statement added node type %d\n", stmt->type);
+        print_debug("DEBUG: parse_block_statement added node type %d\n", stmt->type);
     }
     expect(p, TOKEN_RBRACE, "Expected '}' to close block");
     return (Node*)block;

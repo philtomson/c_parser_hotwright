@@ -79,7 +79,7 @@ void translate_phi_nodes(HotstateMicrocode* mc, BasicBlock* block) {
         MCode nop_mcode = {0}; // All fields to 0
         nop_mcode.forced_jmp = 1; // NOP usually means just continue
         add_hotstate_instruction(mc, nop_mcode, label, block);
-        printf("DEBUG: translate_phi_nodes: Added NOP MCode (forced_jmp: %d)\n", nop_mcode.forced_jmp);
+        print_debug("DEBUG: translate_phi_nodes: Added NOP MCode (forced_jmp: %d)\n", nop_mcode.forced_jmp);
     }
 }
 
@@ -119,7 +119,7 @@ void translate_instructions(HotstateMicrocode* mc, BasicBlock* block) {
         }
         
         add_hotstate_instruction(mc, mcode, label, block);
-        printf("DEBUG: translate_instructions: Added MCode (state: %d, mask: %d, jadr: %d, varSel: %d, timerSel: %d, timerLd: %d, switch_sel: %d, switch_adr: %d, state_capture: %d, var_or_timer: %d, branch: %d, forced_jmp: %d, sub: %d, rtn: %d)\n",
+        print_debug("DEBUG: translate_instructions: Added MCode (state: %d, mask: %d, jadr: %d, varSel: %d, timerSel: %d, timerLd: %d, switch_sel: %d, switch_adr: %d, state_capture: %d, var_or_timer: %d, branch: %d, forced_jmp: %d, sub: %d, rtn: %d)\n",
                mcode.state, mcode.mask, mcode.jadr, mcode.varSel, mcode.timerSel, mcode.timerLd, mcode.switch_sel, mcode.switch_adr, mcode.state_capture, mcode.var_or_timer, mcode.branch, mcode.forced_jmp, mcode.sub, mcode.rtn);
         free(label);
     }
@@ -131,7 +131,7 @@ void translate_control_flow(HotstateMicrocode* mc, BasicBlock* block) {
         MCode halt_mcode = {0};
         halt_mcode.forced_jmp = 1; // Or some other halt instruction
         add_hotstate_instruction(mc, halt_mcode, "halt", block);
-        printf("DEBUG: translate_control_flow: Added HALT MCode (forced_jmp: %d)\n", halt_mcode.forced_jmp);
+        print_debug("DEBUG: translate_control_flow: Added HALT MCode (forced_jmp: %d)\n", halt_mcode.forced_jmp);
         return;
     }
     
@@ -146,7 +146,7 @@ void translate_control_flow(HotstateMicrocode* mc, BasicBlock* block) {
         snprintf(label, sizeof(label), "jump -> block_%d", target->id);
         add_hotstate_instruction(mc, jump_mcode, label, block);
         mc->jumps++;
-        printf("DEBUG: translate_control_flow: Added JUMP MCode (jadr: %d, forced_jmp: %d)\n", jump_mcode.jadr, jump_mcode.forced_jmp);
+        print_debug("DEBUG: translate_control_flow: Added JUMP MCode (jadr: %d, forced_jmp: %d)\n", jump_mcode.jadr, jump_mcode.forced_jmp);
         
     } else if (block->successor_count == 2) {
         // Conditional branch - need to find the branch condition
@@ -173,7 +173,7 @@ void translate_control_flow(HotstateMicrocode* mc, BasicBlock* block) {
                     true_target->id, false_target->id);
             add_hotstate_instruction(mc, branch_mcode, label, block);
             mc->branches++;
-            printf("DEBUG: translate_control_flow: Added BRANCH MCode (jadr: %d, varSel: %d, branch: %d, var_or_timer: %d)\n",
+            print_debug("DEBUG: translate_control_flow: Added BRANCH MCode (jadr: %d, varSel: %d, branch: %d, var_or_timer: %d)\n",
                    branch_mcode.jadr, branch_mcode.varSel, branch_mcode.branch, branch_mcode.var_or_timer);
             
             // Add unconditional jump for false case (next instruction)
@@ -182,14 +182,14 @@ void translate_control_flow(HotstateMicrocode* mc, BasicBlock* block) {
             snprintf(label, sizeof(label), "false -> block_%d", false_target->id);
             add_hotstate_instruction(mc, false_jump_mcode, label, block);
             mc->jumps++;
-            printf("DEBUG: translate_control_flow: Added FALSE JUMP MCode (jadr: %d, forced_jmp: %d)\n", false_jump_mcode.jadr, false_jump_mcode.forced_jmp);
+            print_debug("DEBUG: translate_control_flow: Added FALSE JUMP MCode (jadr: %d, forced_jmp: %d)\n", false_jump_mcode.jadr, false_jump_mcode.forced_jmp);
         } else {
             // No explicit branch instruction - generate default behavior
             int target_addr = get_block_address(mc, true_target);
             MCode jump_mcode = encode_unconditional_jump(target_addr);
             add_hotstate_instruction(mc, jump_mcode, "default_jump", block);
             mc->jumps++;
-            printf("DEBUG: translate_control_flow: Added DEFAULT JUMP MCode (jadr: %d, forced_jmp: %d)\n", jump_mcode.jadr, jump_mcode.forced_jmp);
+            print_debug("DEBUG: translate_control_flow: Added DEFAULT JUMP MCode (jadr: %d, forced_jmp: %d)\n", jump_mcode.jadr, jump_mcode.forced_jmp);
         }
     }
 }
@@ -416,7 +416,7 @@ HotstateMicrocode* create_hotstate_microcode(CFG* cfg, HardwareContext* hw_ctx) 
 }
 
 void init_hotstate_microcode(HotstateMicrocode* mc, CFG* cfg, HardwareContext* hw_ctx) {
-    printf("DEBUG: cfg_to_microcode.c: init_hotstate_microcode: debug_mode = %d\n", debug_mode);
+    print_debug("DEBUG: cfg_to_microcode.c: init_hotstate_microcode: debug_mode = %d\n", debug_mode);
     mc->instruction_capacity = count_expected_instructions(cfg);
     mc->instructions = malloc(sizeof(Code) * mc->instruction_capacity);
     mc->instruction_count = 0;

@@ -28,7 +28,7 @@ run_test() {
     TESTS_RUN=$((TESTS_RUN + 1))
     
     # Run the parser
-    if ../c_parser "$test_file" --all-hdl > /dev/null 2>&1; then
+    if ../bin/c_parser "$test_file" --all-hdl > /dev/null 2>&1; then
         if [ "$expected_result" = "pass" ]; then
             echo -e "${GREEN}PASS${NC}"
             TESTS_PASSED=$((TESTS_PASSED + 1))
@@ -58,7 +58,7 @@ run_detailed_test() {
     cat "$test_file"
     echo
     echo "Parser output:"
-    ../c_parser "$test_file" --all-hdl
+    ../bin/c_parser "$test_file" --all-hdl
     echo
 }
 
@@ -66,7 +66,7 @@ run_detailed_test() {
 cd "$(dirname "$0")"
 
 # Check if c_parser exists
-if [ ! -f "../c_parser" ]; then
+if [ ! -f "../bin/c_parser" ]; then
     echo -e "${RED}Error: c_parser not found. Please run 'make' first.${NC}"
     exit 1
 fi

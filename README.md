@@ -1,4 +1,4 @@
-# C Parser with Hardware Synthesis Support
+# C Parser with support for Hotwright microcode generation
 
 A recursive descent C parser that builds an Abstract Syntax Tree (AST), generates Control Flow Graphs (CFG), and synthesizes hardware microcode and Verilog HDL for FPGA implementation.
 
