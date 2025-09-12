@@ -1753,20 +1753,6 @@ static char* create_statement_label(Node* stmt) {
 }
 */
 
-// Helper function to print the microcode header (matching hotstate format)
-static void print_microcode_header(FILE* output) {
-    fprintf(output, "                  s             \n");
-    fprintf(output, "                s s             \n");
-    fprintf(output, "                w w s     f     \n");
-    fprintf(output, "a               i i t t   o     \n");
-    fprintf(output, "d         v t   t t a i b r     \n");
-    fprintf(output, "d  s      a i t c c t m r c     \n");
-    fprintf(output, "r  t m j  r m i h h e / a e     \n");
-    fprintf(output, "e  a a a  S S m S A C v n j s r \n");
-    fprintf(output, "s  t s d  e e L e d a a c m u t \n");
-    fprintf(output, "s  e k r  l l d l r p r h p b n \n");
-    fprintf(output, "---------------------------------\n");
-}
 
 // Helper function to print state assignments (matching hotstate format)
 static void print_state_assignments(CompactMicrocode* mc, FILE* output) {
@@ -1926,23 +1912,34 @@ void print_compact_microcode_table(CompactMicrocode* mc, FILE* output) {
         
         // Print in hotstate format: addr state mask jadr varsel unused1 unused2 switchsel switchadr flags
         // Use 'x' for fields that are 0 and should be 'x' in hotstate output, or for fields not directly mapped
-        fprintf(output, "%x %x %x %x %x %x %x %x %x %x %x %x %x %x %x   %s\n",
-            i,                  // Address (hex)
-            state,              // State assignments
-            mask,               // Mask
-            jadr,               // Jump address
-            varsel,             // Variable selection
-            timer_sel,          // Timer selection
-            timer_ld,           // Timer load
-            switch_sel,         // Switch selection
-            switch_adr,         // Switch address flag
-            state_cap,          // State capture
-            var_timer,          // Var or timer
-            branch,             // Branch
-            forced_jmp,         // Forced jump
-            sub,                // Subroutine
-            rtn,                // Return
-            code_entry->label ? code_entry->label : "");
+        // Print in hotstate format: addr state mask jadr varsel unused1 unused2 switchsel switchadr flags
+        // Use 'x' for fields that are 0 and should be 'x' in hotstate output, or for fields not directly mapped
+        // Modified to use dynamic widths from ColumnFormat
+        for (int col_idx = 0; col_idx < num_columns; col_idx++) {
+            if (!columns[col_idx].active) continue; // Skip inactive columns
+
+            // Determine which microcode field to print based on col_idx
+            // and use the width from columns[col_idx].width
+            switch (col_idx) {
+                case 0: fprintf(output, "%0*X", columns[col_idx].width, i); break; // address
+                case 1: fprintf(output, " %0*X", columns[col_idx].width, state); break; // state
+                case 2: fprintf(output, " %0*X", columns[col_idx].width, mask); break; // mask
+                case 3: fprintf(output, " %0*X", columns[col_idx].width, jadr); break; // jadr
+                case 4: fprintf(output, " %0*X", columns[col_idx].width, varsel); break; // varSel
+                case 5: fprintf(output, " %0*X", columns[col_idx].width, timer_sel); break; // timSel
+                case 6: fprintf(output, " %0*X", columns[col_idx].width, timer_ld); break; // timLd
+                case 7: fprintf(output, " %0*X", columns[col_idx].width, switch_sel); break; // switchSel
+                case 8: fprintf(output, " %0*X", columns[col_idx].width, switch_adr); break; // sswitchAdr
+                case 9: fprintf(output, " %0*X", columns[col_idx].width, state_cap); break; // stateCap
+                case 10: fprintf(output, " %0*X", columns[col_idx].width, var_timer); break; // tim/var
+                case 11: fprintf(output, " %0*X", columns[col_idx].width, branch); break; // branch
+                case 12: fprintf(output, " %0*X", columns[col_idx].width, forced_jmp); break; // forcejmp
+                case 13: fprintf(output, " %0*X", columns[col_idx].width, sub); break; // sub
+                case 14: fprintf(output, " %0*X", columns[col_idx].width, rtn); break; // rtn
+                default: break;
+            }
+        }
+        fprintf(output, "   %s\n", code_entry->label ? code_entry->label : ""); // Label at the end
     }
     
     fprintf(output, "\n");
