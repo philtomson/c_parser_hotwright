@@ -1916,7 +1916,12 @@ void print_compact_microcode_table(CompactMicrocode* mc, FILE* output) {
         // Use 'x' for fields that are 0 and should be 'x' in hotstate output, or for fields not directly mapped
         // Modified to use dynamic widths from ColumnFormat
         for (int col_idx = 0; col_idx < num_columns; col_idx++) {
-            if (!columns[col_idx].active) continue; // Skip inactive columns
+            /* don't skip inactive columns, instead print 'X' in that column:
+            if (!columns[col_idx].active) {
+                print_debug("DEBUG: print_compact_microcode_table: Skipping inactive column %d\n", col_idx);
+                continue; // Skip inactive columns
+            }
+            */
 
             // Determine which microcode field to print based on col_idx
             // and use the width from columns[col_idx].width
@@ -1926,19 +1931,20 @@ void print_compact_microcode_table(CompactMicrocode* mc, FILE* output) {
                 case 2: fprintf(output, " %0*X", columns[col_idx].width, mask); break; // mask
                 case 3: fprintf(output, " %0*X", columns[col_idx].width, jadr); break; // jadr
                 case 4: fprintf(output, " %0*X", columns[col_idx].width, varsel); break; // varSel
-                case 5: fprintf(output, " %0*X", columns[col_idx].width, timer_sel); break; // timSel
-                case 6: fprintf(output, " %0*X", columns[col_idx].width, timer_ld); break; // timLd
-                case 7: fprintf(output, " %0*X", columns[col_idx].width, switch_sel); break; // switchSel
-                case 8: fprintf(output, " %0*X", columns[col_idx].width, switch_adr); break; // sswitchAdr
+                case 5: fprintf(output, columns[col_idx].active ? " %0*X" : " %*c", columns[col_idx].width, columns[col_idx].active ? timer_sel : 'X'); break; // timSel
+                case 6: fprintf(output, columns[col_idx].active ? " %0*X" : " %*c", columns[col_idx].width, columns[col_idx].active ? timer_ld : 'X'); break; // timLd
+                case 7: fprintf(output, columns[col_idx].active ? " %0*X" : " %*c", columns[col_idx].width, columns[col_idx].active ? switch_sel : 'X'); break; // switchSel
+                case 8: fprintf(output, columns[col_idx].active ? " %0*X" : " %*c", columns[col_idx].width, columns[col_idx].active ? switch_adr : 'X'); break; // sswitchAdr
                 case 9: fprintf(output, " %0*X", columns[col_idx].width, state_cap); break; // stateCap
-                case 10: fprintf(output, " %0*X", columns[col_idx].width, var_timer); break; // tim/var
-                case 11: fprintf(output, " %0*X", columns[col_idx].width, branch); break; // branch
+                case 10: fprintf(output, columns[col_idx].active ? " %0*X" : " %*c", columns[col_idx].width, columns[col_idx].active ? var_timer : 'X'); break; // tim/var
+                case 11: fprintf(output, columns[col_idx].active ? " %0*X" : " %*c", columns[col_idx].width, columns[col_idx].active ? branch : 'X'); break; // branch
                 case 12: fprintf(output, " %0*X", columns[col_idx].width, forced_jmp); break; // forcejmp
                 case 13: fprintf(output, " %0*X", columns[col_idx].width, sub); break; // sub
                 case 14: fprintf(output, " %0*X", columns[col_idx].width, rtn); break; // rtn
                 default: break;
             }
         }
+        // Explicitly print sub and rtn outside the loop to ensure they are always displayed
         fprintf(output, "   %s\n", code_entry->label ? code_entry->label : ""); // Label at the end
     }
     
