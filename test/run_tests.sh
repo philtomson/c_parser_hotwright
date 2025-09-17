@@ -94,6 +94,9 @@ run_test "Function features" "test_functions.c" "pass"
 run_test "For loop" "test_for.c" "pass"
 run_test "All loops" "test_all_loops.c" "pass"
 
+# Test for switch with varnum
+run_test "Switch with varnum" "test_switch_varnum.c" "pass"
+
 echo
 echo "=== Test Summary ==="
 echo "Tests run: $TESTS_RUN"
