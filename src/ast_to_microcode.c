@@ -1930,7 +1930,7 @@ void print_compact_microcode_table(CompactMicrocode* mc, FILE* output) {
                 case 1: fprintf(output, " %0*X", columns[col_idx].width, state); break; // state
                 case 2: fprintf(output, " %0*X", columns[col_idx].width, mask); break; // mask
                 case 3: fprintf(output, " %0*X", columns[col_idx].width, jadr); break; // jadr
-                case 4: fprintf(output, " %0*X", columns[col_idx].width, varsel); break; // varSel
+                case 4: fprintf(output, columns[col_idx].active ? " %0*X" : " %*c", columns[col_idx].width, columns[col_idx].active ? varsel : 'X') ; break; // varSel
                 case 5: fprintf(output, columns[col_idx].active ? " %0*X" : " %*c", columns[col_idx].width, columns[col_idx].active ? timer_sel : 'X'); break; // timSel
                 case 6: fprintf(output, columns[col_idx].active ? " %0*X" : " %*c", columns[col_idx].width, columns[col_idx].active ? timer_ld : 'X'); break; // timLd
                 case 7: fprintf(output, columns[col_idx].active ? " %0*X" : " %*c", columns[col_idx].width, columns[col_idx].active ? switch_sel : 'X'); break; // switchSel
