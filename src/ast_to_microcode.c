@@ -1193,7 +1193,7 @@ static void process_switch_statement(CompactMicrocode* mc, SwitchNode* switch_no
     // Generate switch instruction with proper hotstate fields
     MCode switch_mcode;
     // Pass switch_expression_input_num as switch_adr
-    populate_mcode_instruction(mc, &switch_mcode, 0, 0, 0, mc->var_sel_counter++, 0, 0, switch_id, 1, 0, 0, 0, 0, 0, 0);
+    populate_mcode_instruction(mc, &switch_mcode, 0, 0, 0, mc->var_sel_counter++, 0, 0, switch_expression_input_num, 1, 0, 0, 0, 0, 0, 0);
     add_conditional_expression(mc, switch_node->expression, mc->var_sel_counter - 1);
     
     // Create dynamic label that includes the variable name
@@ -1228,7 +1228,7 @@ static void process_switch_statement(CompactMicrocode* mc, SwitchNode* switch_no
         
         // Generate case target instruction (normal instruction, not switch)
         MCode case_mcode;
-        populate_mcode_instruction(mc, &case_mcode, 0, 0, 0, 0, 0, 0, switch_id, 0, 0, 0, 0, 0, 0, 0); // Assuming switch_id for switch_sel
+        populate_mcode_instruction(mc, &case_mcode, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0); // switch_sel should be 0 for CASE
         add_case_instruction(mc, &case_mcode, case_label, switch_id);
         // (*addr)++; // Removed to not increment address for CASE labels
         
