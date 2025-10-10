@@ -76,6 +76,8 @@ static void add_pending_jump(CompactMicrocode* mc, int instruction_index, int ta
 static void resize_pending_jumps(CompactMicrocode* mc);
 static void add_conditional_expression(CompactMicrocode* mc, Node* expression_node, int varsel_id);
 static void resize_conditional_expressions(CompactMicrocode* mc);
+static bool is_simple_variable_reference(Node* expr);
+static bool is_complex_boolean_expression(Node* expr);
 
 static void push_context(CompactMicrocode* mc, LoopSwitchContext* context) {
     if(mc->stack_ptr >= mc->stack_capacity) {
@@ -124,6 +126,41 @@ static void add_pending_jump(CompactMicrocode* mc, int instruction_index, int ta
      mc->conditional_expressions[mc->conditional_expression_count].sim_expr = NULL; // Will be populated later
      mc->conditional_expression_count++;
  }
+
+// Check if expression is a simple variable reference (no operators)
+static bool is_simple_variable_reference(Node* expr) {
+    if (!expr) return false;
+    
+    // ONLY simple identifier reference like "a0" or "input1" with NO operators
+    if (expr->type == NODE_IDENTIFIER) {
+        return true;
+    }
+    
+    return false;
+}
+
+// Check if expression is complex and needs a LUT entry
+// Based on hotstate behavior: anything other than a bare variable reference needs a varSel
+static bool is_complex_boolean_expression(Node* expr) {
+    if (!expr) return false;
+    
+    // Any binary operation needs a LUT (AND, OR, ==, !=, etc.)
+    if (expr->type == NODE_BINARY_OP) {
+        return true;
+    }
+    
+    // Unary NOT also needs a LUT entry (even !(a0) needs evaluation)
+    if (expr->type == NODE_UNARY_OP) {
+        return true;
+    }
+    
+    // Number literals need LUT entries for constant evaluation
+    if (expr->type == NODE_NUMBER_LITERAL) {
+        return true;
+    }
+    
+    return false;
+}
 
 static void pop_context(CompactMicrocode* mc){
     if (mc->stack_ptr > 0) {
@@ -972,11 +1009,20 @@ static void process_statement(CompactMicrocode* mc, Node* stmt, int* addr) {
             int jump_addr = calculate_jump_address(mc, if_node, *addr);
             
             MCode if_mcode;
-            int current_varsel_id = mc->var_sel_counter++;
-            populate_mcode_instruction(mc, &if_mcode, 0, 0, jump_addr, current_varsel_id, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0);
+            int current_varsel_id;
+            
+            // Only assign a new varSel if this is a complex expression that needs a LUT entry
+            if (is_complex_boolean_expression(if_node->condition)) {
+                current_varsel_id = mc->var_sel_counter++;
+                add_conditional_expression(mc, if_node->condition, current_varsel_id);
+            } else {
+                // Simple variable reference - use varSel 0 (direct hardware input)
+                current_varsel_id = 0;
+            }
+            
             char if_full_label[256];
-            add_conditional_expression(mc, if_node->condition, current_varsel_id);
             snprintf(if_full_label, sizeof(if_full_label), "if (%s) {", condition_label);
+            populate_mcode_instruction(mc, &if_mcode, 0, 0, jump_addr, current_varsel_id, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0);
             add_compact_instruction(mc, &if_mcode, if_full_label, JUMP_TYPE_DIRECT, calculate_jump_address(mc, if_node, *addr));
             mc->branch_instructions++;
             (*addr)++;
@@ -1192,9 +1238,19 @@ static void process_switch_statement(CompactMicrocode* mc, SwitchNode* switch_no
 
     // Generate switch instruction with proper hotstate fields
     MCode switch_mcode;
+    int current_varsel_id;
+    
+    // Only assign a new varSel if this is a complex expression that needs a LUT entry
+    if (is_complex_boolean_expression(switch_node->expression)) {
+        current_varsel_id = mc->var_sel_counter++;
+        add_conditional_expression(mc, switch_node->expression, current_varsel_id);
+    } else {
+        // Simple variable reference - use varSel 0 (direct hardware input)
+        current_varsel_id = 0;
+    }
+    
     // Pass switch_expression_input_num as switch_adr
-    populate_mcode_instruction(mc, &switch_mcode, 0, 0, 0, mc->var_sel_counter++, 0, 0, switch_expression_input_num, 1, 0, 0, 0, 0, 0, 0);
-    add_conditional_expression(mc, switch_node->expression, mc->var_sel_counter - 1);
+    populate_mcode_instruction(mc, &switch_mcode, 0, 0, 0, current_varsel_id, 0, 0, switch_expression_input_num, 1, 0, 0, 0, 0, 0, 0);
     
     // Create dynamic label that includes the variable name
     char switch_label[128];
