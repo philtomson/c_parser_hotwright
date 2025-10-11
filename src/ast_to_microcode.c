@@ -143,23 +143,51 @@ static bool is_simple_variable_reference(Node* expr) {
 // Based on hotstate behavior: anything other than a bare variable reference needs a varSel
 static bool is_complex_boolean_expression(Node* expr) {
     if (!expr) return false;
-    
+
     // Any binary operation needs a LUT (AND, OR, ==, !=, etc.)
     if (expr->type == NODE_BINARY_OP) {
         return true;
     }
-    
+
     // Unary NOT also needs a LUT entry (even !(a0) needs evaluation)
     if (expr->type == NODE_UNARY_OP) {
         return true;
     }
-    
-    // Number literals need LUT entries for constant evaluation
+
+    // Number literals in complex contexts need LUT entries for constant evaluation
+    // But simple constants like while(1) don't need varSel at all
     if (expr->type == NODE_NUMBER_LITERAL) {
-        return true;
+        return true; // Still mark as complex for LUT purposes
     }
-    
+
     return false;
+}
+
+// Check if expression is a constant that doesn't need varSel (like while(1))
+static bool is_constant_condition(Node* expr) {
+    if (!expr) return true; // No condition is a constant
+
+    if (expr->type == NODE_NUMBER_LITERAL) {
+        // Check if it's a simple constant (0 or 1)
+        NumberLiteralNode* num_node = (NumberLiteralNode*)expr;
+        return (strcmp(num_node->value, "0") == 0 || strcmp(num_node->value, "1") == 0);
+    }
+
+    return false;
+}
+
+// Hybrid varSel assignment: simple variables = 0, complex expressions = incremental
+static int get_hybrid_varsel(Node* condition, CompactMicrocode* mc) {
+    if (is_constant_condition(condition)) {
+        return 0; // Constant conditions (like while(1)) don't need varSel
+    } else if (is_simple_variable_reference(condition)) {
+        return 0; // Direct hardware input (c-parser efficiency)
+    } else if (is_complex_boolean_expression(condition)) {
+        mc->has_complex_conditionals = 1; // Mark that we need LUT
+        return mc->var_sel_counter++; // Use incremental counter like hotstate
+    } else {
+        return 0; // Fallback for edge cases
+    }
 }
 
 static void pop_context(CompactMicrocode* mc){
@@ -306,7 +334,8 @@ CompactMicrocode* ast_to_compact_microcode(Node* ast_root, HardwareContext* hw_c
     mc->jump_instructions = 0;
     mc->max_jadr_val = 0;
     mc->max_varsel_val = 0;
-    mc->var_sel_counter = 0; // Initialize to 0 to match hotstate behavior
+    mc->var_sel_counter = 1; // Initialize to 1 like hotstate (hybrid approach)
+    mc->has_complex_conditionals = 0; // Track if any complex expressions need LUT
     mc->max_state_val = 0;
     mc->max_mask_val = 0; // Initialize new fields
     mc->max_timersel_val = 0;
@@ -412,7 +441,7 @@ CompactMicrocode* ast_to_compact_microcode(Node* ast_root, HardwareContext* hw_c
     // Phase 2.3.2: Call create_simulated_expression and eval_simulated_expression for collected conditional expressions
     // This needs to happen after all microcode is generated and addresses are resolved,
     // as evaluation might depend on final instruction counts or addresses for context.
-    if (mc->conditional_expression_count > 0) {
+    if (mc->has_complex_conditionals && mc->conditional_expression_count > 0) {
         print_debug("DEBUG: Evaluating %d conditional expressions for Uber LUT.\n", mc->conditional_expression_count);
         // Determine the total number of input variables in the hardware context
         // This is needed to calculate the full LUT size (2^num_total_input_vars)
@@ -958,11 +987,15 @@ static void process_statement(CompactMicrocode* mc, Node* stmt, int* addr) {
             
             // Generate the while loop header instruction (jumps to loop_exit_addr if condition is false)
             MCode while_mcode;
-            int current_varsel_id = mc->var_sel_counter++;
+            int current_varsel_id = get_hybrid_varsel(while_node->condition, mc);
             populate_mcode_instruction(mc, &while_mcode, 0, 0, 0, current_varsel_id, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0); // jadr placeholder, branch=1, state_capture=1, forced_jmp=0
             add_compact_instruction(mc, &while_mcode, while_full_label, JUMP_TYPE_EXIT, mc->exit_address);
             (*addr)++;
-            add_conditional_expression(mc, while_node->condition, current_varsel_id);
+
+            // Only add conditional expression for complex expressions (varSel > 0) and non-constant conditions
+            if (current_varsel_id > 0 && !is_constant_condition(while_node->condition)) {
+                add_conditional_expression(mc, while_node->condition, current_varsel_id);
+            }
             
             free(condition_lable_str);
             // Process while body statements
@@ -1010,14 +1043,13 @@ static void process_statement(CompactMicrocode* mc, Node* stmt, int* addr) {
             
             MCode if_mcode;
             int current_varsel_id;
-            
-            // Only assign a new varSel if this is a complex expression that needs a LUT entry
-            if (is_complex_boolean_expression(if_node->condition)) {
-                current_varsel_id = mc->var_sel_counter++;
+
+            // Hybrid approach: simple variables = 0, complex expressions = incremental
+            current_varsel_id = get_hybrid_varsel(if_node->condition, mc);
+
+            // Only add conditional expression for complex expressions (varSel > 0) and non-constant conditions
+            if (current_varsel_id > 0 && !is_constant_condition(if_node->condition)) {
                 add_conditional_expression(mc, if_node->condition, current_varsel_id);
-            } else {
-                // Simple variable reference - use varSel 0 (direct hardware input)
-                current_varsel_id = 0;
             }
             
             char if_full_label[256];
@@ -1239,14 +1271,13 @@ static void process_switch_statement(CompactMicrocode* mc, SwitchNode* switch_no
     // Generate switch instruction with proper hotstate fields
     MCode switch_mcode;
     int current_varsel_id;
-    
-    // Only assign a new varSel if this is a complex expression that needs a LUT entry
-    if (is_complex_boolean_expression(switch_node->expression)) {
-        current_varsel_id = mc->var_sel_counter++;
+
+    // Hybrid approach: simple variables = 0, complex expressions = incremental
+    current_varsel_id = get_hybrid_varsel(switch_node->expression, mc);
+
+    // Only add conditional expression for complex expressions (varSel > 0) and non-constant conditions
+    if (current_varsel_id > 0 && !is_constant_condition(switch_node->expression)) {
         add_conditional_expression(mc, switch_node->expression, current_varsel_id);
-    } else {
-        // Simple variable reference - use varSel 0 (direct hardware input)
-        current_varsel_id = 0;
     }
     
     // Pass switch_expression_input_num as switch_adr
@@ -1986,7 +2017,7 @@ void print_compact_microcode_table(CompactMicrocode* mc, FILE* output) {
                 case 1: fprintf(output, " %0*X", columns[col_idx].width, state); break; // state
                 case 2: fprintf(output, " %0*X", columns[col_idx].width, mask); break; // mask
                 case 3: fprintf(output, " %0*X", columns[col_idx].width, jadr); break; // jadr
-                case 4: fprintf(output, columns[col_idx].active ? " %0*X" : " %*c", columns[col_idx].width, columns[col_idx].active ? varsel : 'X') ; break; // varSel
+                case 4: fprintf(output, (columns[col_idx].active && mc->has_complex_conditionals) ? " %0*X" : " %*c", columns[col_idx].width, (columns[col_idx].active && mc->has_complex_conditionals) ? varsel : 'X') ; break; // varSel
                 case 5: fprintf(output, columns[col_idx].active ? " %0*X" : " %*c", columns[col_idx].width, columns[col_idx].active ? timer_sel : 'X'); break; // timSel
                 case 6: fprintf(output, columns[col_idx].active ? " %0*X" : " %*c", columns[col_idx].width, columns[col_idx].active ? timer_ld : 'X'); break; // timLd
                 case 7: fprintf(output, columns[col_idx].active ? " %0*X" : " %*c", columns[col_idx].width, columns[col_idx].active ? switch_sel : 'X'); break; // switchSel

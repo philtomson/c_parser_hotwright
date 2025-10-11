@@ -111,6 +111,7 @@ typedef struct {
     uint32_t max_sub_val; // Added for compatibility with HotstateMicrocode
     uint32_t max_rtn_val; // Added for compatibility with HotstateMicrocode
     int var_sel_counter; // Counter for varSel values
+    int has_complex_conditionals; // Track if any complex expressions need LUT
 
     // Pending jump resolution
     PendingJump* pending_jumps;
