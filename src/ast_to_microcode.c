@@ -1657,7 +1657,11 @@ static int estimate_statement_size(Node* stmt) {
                     size += 1; // For a single statement in else branch
                 }
             }
-            size += 1; // for the closing "}}" instruction
+            // Hotstate optimization: don't add separate closing instruction for simple if statements
+            // The closing brace is added to the label of the last instruction in the then branch
+            if (if_node->else_branch) {
+                size += 1; // Only add closing instruction for if-else statements
+            }
             break;
         }
         case NODE_WHILE: {
