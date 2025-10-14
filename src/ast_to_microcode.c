@@ -467,7 +467,14 @@ CompactMicrocode* ast_to_compact_microcode(Node* ast_root, HardwareContext* hw_c
         }
 
         // Allocate and populate vardata_lut
-        mc->vardata_lut_size = mc->conditional_expression_count * (1 << num_total_input_vars);
+        // Need to allocate enough space for the highest varsel_id, not just the count
+        int max_varsel_id = 0;
+        for (int i = 0; i < mc->conditional_expression_count; i++) {
+            if (mc->conditional_expressions[i].varsel_id > max_varsel_id) {
+                max_varsel_id = mc->conditional_expressions[i].varsel_id;
+            }
+        }
+        mc->vardata_lut_size = (max_varsel_id + 1) * (1 << num_total_input_vars);
         mc->vardata_lut = (uint8_t*)malloc(sizeof(uint8_t) * mc->vardata_lut_size);
         if (!mc->vardata_lut) {
             fprintf(stderr, "Error: Failed to allocate vardata_lut.\n");
@@ -477,6 +484,15 @@ CompactMicrocode* ast_to_compact_microcode(Node* ast_root, HardwareContext* hw_c
 
         for (int i = 0; i < mc->conditional_expression_count; i++) {
             ConditionalExpressionInfo* info = &mc->conditional_expressions[i];
+            
+            // Check if varsel_id is within bounds
+            int required_size = (info->varsel_id + 1) * (1 << num_total_input_vars);
+            if (required_size > mc->vardata_lut_size) {
+                fprintf(stderr, "Error: varsel_id %d exceeds allocated vardata_lut size %d\n",
+                        info->varsel_id, mc->vardata_lut_size);
+                continue; // Skip this entry to prevent buffer overflow
+            }
+            
             if (info->sim_expr && info->sim_expr->LUT) {
                 // Copy the LUT for this expression into the main vardata_lut
                 // The position in vardata_lut is determined by the varsel_id
@@ -938,7 +954,7 @@ static void process_function(CompactMicrocode* mc, FunctionDefNode* func) {
 
     // Add exit instruction (will be a self-loop after resolution)
     MCode exit_mcode;
-    populate_mcode_instruction(mc, &exit_mcode, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0); // jadr placeholder
+    populate_mcode_instruction(mc, &exit_mcode, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0); // jadr placeholder
     add_compact_instruction(mc, &exit_mcode, ":exit", JUMP_TYPE_EXIT, mc->exit_address);
 }
 
@@ -1014,7 +1030,7 @@ static void process_statement(CompactMicrocode* mc, Node* stmt, int* addr) {
             
             // Add the jump back to the loop header for the next iteration
             MCode jump_mcode;
-            populate_mcode_instruction(mc, &jump_mcode, 0, 0, current_loop_context.continue_target, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0); // Jadr still needs to be populated for the MCode struct
+            populate_mcode_instruction(mc, &jump_mcode, 0, 0, current_loop_context.continue_target, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0); // Jadr still needs to be populated for the MCode struct
             add_compact_instruction(mc, &jump_mcode, "}", JUMP_TYPE_CONTINUE, mc->stack_ptr - 1);
             mc->jump_instructions++;
             (*addr)++;
@@ -1054,7 +1070,7 @@ static void process_statement(CompactMicrocode* mc, Node* stmt, int* addr) {
             
             char if_full_label[256];
             snprintf(if_full_label, sizeof(if_full_label), "if (%s) {", condition_label);
-            populate_mcode_instruction(mc, &if_mcode, 0, 0, jump_addr, current_varsel_id, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0);
+            populate_mcode_instruction(mc, &if_mcode, 0, 0, jump_addr, current_varsel_id, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0);
             add_compact_instruction(mc, &if_mcode, if_full_label, JUMP_TYPE_DIRECT, calculate_jump_address(mc, if_node, *addr));
             mc->branch_instructions++;
             (*addr)++;
@@ -1997,6 +2013,7 @@ void print_compact_microcode_table(CompactMicrocode* mc, FILE* output) {
         uint32_t sub = mcode->sub;
         uint32_t rtn = mcode->rtn;
         
+        
         // Print in hotstate format: addr state mask jadr varsel unused1 unused2 switchsel switchadr flags
         // Use 'x' for fields that are 0 and should be 'x' in hotstate output, or for fields not directly mapped
         // Print in hotstate format: addr state mask jadr varsel unused1 unused2 switchsel switchadr flags
@@ -2094,7 +2111,11 @@ void free_compact_microcode(CompactMicrocode* mc) {
     if (!mc) return;
     
     for (int i = 0; i < mc->instruction_count; i++) {
-        free(mc->instructions[i].label);
+        if (mc->instructions[i].label) {
+            // printf("Freeing label %d: %s\n", i, mc->instructions[i].label);
+            free(mc->instructions[i].label);
+            mc->instructions[i].label = NULL; // Prevent double free
+        }
     }
     
     free(mc->instructions);
