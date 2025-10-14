@@ -1070,7 +1070,7 @@ static void process_statement(CompactMicrocode* mc, Node* stmt, int* addr) {
             
             char if_full_label[256];
             snprintf(if_full_label, sizeof(if_full_label), "if (%s) {", condition_label);
-            populate_mcode_instruction(mc, &if_mcode, 0, 0, jump_addr, current_varsel_id, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0);
+            populate_mcode_instruction(mc, &if_mcode, 0, 0, jump_addr, current_varsel_id, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0);
             add_compact_instruction(mc, &if_mcode, if_full_label, JUMP_TYPE_DIRECT, calculate_jump_address(mc, if_node, *addr));
             mc->branch_instructions++;
             (*addr)++;
