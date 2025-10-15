@@ -1,6 +1,7 @@
 #define _GNU_SOURCE  // For strdup
 #include "microcode_defs.h" // Explicitly include for Code struct definition
 #include "ast_to_microcode.h"
+#include "cfg_to_microcode.h" // For switch_offset_bits extern declaration
 #include "hw_analyzer.h"       // For HardwareContext and HardwareStateVar
 #include "lexer.h"             // For TOKEN_
 #include "cfg_to_microcode.h"  // For HotstateMicrocode and HOTSTATE_ macros
@@ -78,6 +79,8 @@ static void add_conditional_expression(CompactMicrocode* mc, Node* expression_no
 static void resize_conditional_expressions(CompactMicrocode* mc);
 static bool is_simple_variable_reference(Node* expr);
 static bool is_complex_boolean_expression(Node* expr);
+// static int calculate_required_switch_bits(Node* ast_root); // Declared in header
+static void find_max_case_value(Node* node, int* max_case_value);
 
 static void push_context(CompactMicrocode* mc, LoopSwitchContext* context) {
     if(mc->stack_ptr >= mc->stack_capacity) {
@@ -324,7 +327,7 @@ CompactMicrocode* ast_to_compact_microcode(Node* ast_root, HardwareContext* hw_c
     // Initialize switch memory management
     mc->switchmem = calloc(MAX_SWITCH_ENTRIES * MAX_SWITCHES, sizeof(uint32_t));
     mc->switch_count = 0;
-    mc->switch_offset_bits = SWITCH_OFFSET_BITS;
+    mc->switch_offset_bits = switch_offset_bits; // Use global configurable value
     
     mc->state_assignments = 0;
     mc->branch_instructions = 0;
@@ -2159,9 +2162,15 @@ static void populate_switch_memory(CompactMicrocode* mc, int switch_id, SwitchNo
             case_value = atoi(num->value);
         }
         
-        // Store case address in switch memory
+        // Store case address in switch memory with bounds checking
         if (case_value >= 0 && case_value < (1 << mc->switch_offset_bits)) {
             mc->switchmem[base_addr + case_value] = case_addr;
+        } else {
+            fprintf(stderr, "Error: Case value %d exceeds switch range (0-%d) for switch %d\n",
+                    case_value, (1 << mc->switch_offset_bits) - 1, switch_id);
+            fprintf(stderr, "       Consider using --switch-bits %d or higher to support case value %d\n",
+                    switch_offset_bits + 1, case_value);
+            // Continue with default case for out-of-range values
         }
         
         case_addr++;  // Each case gets one address initially
@@ -2275,4 +2284,93 @@ static void calculate_comma_expression_fields(Node* comma_expr, HardwareContext*
             calculate_comma_expression_fields(binop->right, hw_ctx, state_out, mask_out);
         }
     }
+}
+
+// --- Automatic Switch Bits Calculation ---
+
+static void find_max_case_value(Node* node, int* max_case_value) {
+    if (!node) return;
+    
+    switch (node->type) {
+        case NODE_SWITCH: {
+            SwitchNode* switch_node = (SwitchNode*)node;
+            if (switch_node->cases) {
+                for (int i = 0; i < switch_node->cases->count; i++) {
+                    CaseNode* case_node = (CaseNode*)switch_node->cases->items[i];
+                    if (case_node->value && case_node->value->type == NODE_NUMBER_LITERAL) {
+                        NumberLiteralNode* num = (NumberLiteralNode*)case_node->value;
+                        int case_value = atoi(num->value);
+                        if (case_value > *max_case_value) {
+                            *max_case_value = case_value;
+                        }
+                    }
+                    // Recursively check nested switches in case body
+                    // case_node->body is a NodeList, need to iterate through it
+                    if (case_node->body) {
+                        for (int j = 0; j < case_node->body->count; j++) {
+                            find_max_case_value(case_node->body->items[j], max_case_value);
+                        }
+                    }
+                }
+            }
+            break;
+        }
+        
+        case NODE_BLOCK: {
+            BlockNode* block = (BlockNode*)node;
+            if (block->statements) {
+                for (int i = 0; i < block->statements->count; i++) {
+                    find_max_case_value(block->statements->items[i], max_case_value);
+                }
+            }
+            break;
+        }
+        
+        case NODE_FUNCTION_DEF: {
+            FunctionDefNode* func = (FunctionDefNode*)node;
+            if (func->body) {
+                find_max_case_value(func->body, max_case_value);
+            }
+            break;
+        }
+        
+        case NODE_PROGRAM: {
+            ProgramNode* program = (ProgramNode*)node;
+            if (program->functions) {
+                for (int i = 0; i < program->functions->count; i++) {
+                    find_max_case_value(program->functions->items[i], max_case_value);
+                }
+            }
+            break;
+        }
+        
+        default:
+            // For other node types, check if they have children that might contain switches
+            // This is a generic approach - specific node types would be more efficient
+            break;
+    }
+}
+
+int calculate_required_switch_bits(Node* ast_root) {
+    int max_case_value = 0;
+    find_max_case_value(ast_root, &max_case_value);
+    
+    if (max_case_value == 0) {
+        return DEFAULT_SWITCH_OFFSET_BITS; // No switches or only case 0
+    }
+    
+    // Calculate minimum bits needed to represent max_case_value
+    int required_bits = 0;
+    int temp = max_case_value;
+    while (temp > 0) {
+        temp >>= 1;
+        required_bits++;
+    }
+    
+    // Ensure at least 1 bit
+    if (required_bits == 0) {
+        required_bits = 1;
+    }
+    
+    return required_bits;
 }

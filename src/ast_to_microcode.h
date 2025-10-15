@@ -139,4 +139,7 @@ void print_compact_microcode_analysis(CompactMicrocode* mc, FILE* output);
 // Memory management
 void free_compact_microcode(CompactMicrocode* mc);
 
+// Automatic switch bits calculation
+int calculate_required_switch_bits(Node* ast_root);
+
 #endif // AST_TO_MICROCODE_H

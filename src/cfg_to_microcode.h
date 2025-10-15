@@ -70,10 +70,10 @@ typedef struct {
 #define HOTSTATE_SWITCH_SEL_SHIFT 20
 #define HOTSTATE_SWITCH_ADR_SHIFT 24
 
-// Switch memory configuration
-#define MAX_SWITCH_ENTRIES      4096    // Total switch memory entries
-#define SWITCH_OFFSET_BITS      8       // 256 entries per switch (2^8)
-#define MAX_SWITCHES           4       // Maximum number of switches
+// Switch memory configuration (now dynamic)
+#define DEFAULT_SWITCH_OFFSET_BITS  8   // Default: 256 entries per switch (2^8)
+#define MAX_SWITCH_ENTRIES      4096    // Maximum total switch memory entries
+#define MAX_SWITCHES           32       // Maximum number of switches (reasonable upper bound)
 
 // --- Core Translation Functions ---
 
@@ -136,5 +136,8 @@ void generate_all_output_files(CompactMicrocode* mc, const char* source_filename
 bool validate_microcode(HotstateMicrocode* mc);
 bool check_address_bounds(HotstateMicrocode* mc);
 bool check_variable_references(HotstateMicrocode* mc);
+
+// Global configuration variables (extern declarations)
+extern int switch_offset_bits;
 
 #endif // CFG_TO_MICROCODE_H

@@ -7,6 +7,9 @@
 #include <stdio.h>
 #include <limits.h> // For INT_MIN
 
+// Global configuration variables
+int switch_offset_bits = DEFAULT_SWITCH_OFFSET_BITS; // Default value
+
 
 // --- Internal Helper Functions ---
  

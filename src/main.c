@@ -15,8 +15,10 @@
 #include "verilog_generator.h"
 #include "preprocessor.h"
 
-// Global debug flag
+// Global configuration flags
 int debug_mode = 0;
+static bool user_set_switch_bits = false; // Track if user explicitly set switch-bits
+// switch_offset_bits is defined in cfg_to_microcode.c
 
 // A simple recursive AST printer for visualization
 void print_ast(Node* node, int indent);
@@ -103,6 +105,20 @@ int main(int argc, char* argv[]) {
             microcode_mode = MICROCODE_SSA;
         } else if (strcmp(argv[i], "--opt") == 0) {
             optimize_ssa = true;
+        } else if (strcmp(argv[i], "--switch-bits") == 0) {
+            if (i + 1 < argc) {
+                switch_offset_bits = atoi(argv[++i]);
+                user_set_switch_bits = true; // Mark that user explicitly set this
+                if (switch_offset_bits < 1 || switch_offset_bits > 16) {
+                    fprintf(stderr, "Error: switch-bits must be between 1 and 16\n");
+                    return 1;
+                }
+                printf("Switch offset bits set to %d (entries per switch: %d)\n",
+                       switch_offset_bits, 1 << switch_offset_bits);
+            } else {
+                fprintf(stderr, "Error: --switch-bits requires a value\n");
+                return 1;
+            }
         } else if (strcmp(argv[i], "--microcode-hs") == 0) {
             generate_microcode = true;
             microcode_mode = MICROCODE_COMPACT;
@@ -192,6 +208,14 @@ int main(int argc, char* argv[]) {
     Parser* parser = parser_create(tokens, token_count);
     Node* ast_root = parse(parser);
     parser_destroy(parser);
+    
+    // Auto-calculate switch bits if not explicitly set by user
+    if (!user_set_switch_bits && generate_microcode && microcode_mode == MICROCODE_COMPACT) {
+        int required_bits = calculate_required_switch_bits(ast_root);
+        printf("Auto-detected switch requirements: using %d bits (%d entries per switch)\n",
+               required_bits, 1 << required_bits);
+        switch_offset_bits = required_bits;
+    }
 
     // 3. Print AST
     if (ast_root) {
