@@ -1,0 +1,30 @@
+# Basic stimulus file for hotstate simulator testing
+# Format: Cycle, Input1, Input2, Input3, ...
+# Comments start with #
+
+# Initial state - all inputs low
+0, 0, 0, 0
+
+# Cycle 1 - set first input high
+1, 1, 0, 0
+
+# Cycle 2 - set second input high
+2, 1, 1, 0
+
+# Cycle 3 - all inputs high
+3, 1, 1, 1
+
+# Cycle 4 - toggle first input
+4, 0, 1, 1
+
+# Cycle 5 - toggle second input
+5, 0, 0, 1
+
+# Cycle 6 - all low again
+6, 0, 0, 0
+
+# Cycle 7-10 - pattern test
+7, 1, 0, 1
+8, 0, 1, 0
+9, 1, 1, 0
+10, 0, 1, 1
