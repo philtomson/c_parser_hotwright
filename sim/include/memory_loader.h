@@ -3,6 +3,7 @@
 
 #include <string>
 #include <vector>
+#include <map>
 #include <cstdint>
 
 namespace HotstateSim {
@@ -54,6 +55,12 @@ private:
     std::vector<uint64_t> smdata;
     Parameters params;
     bool loaded = false;
+
+    // Symbol table data
+    std::map<std::string, uint32_t> inputNameToIndex;
+    std::map<std::string, uint32_t> stateNameToIndex;
+    std::map<uint32_t, std::string> inputIndexToName;
+    std::map<uint32_t, std::string> stateIndexToName;
     
     // Helper methods
     bool loadMemoryFile(const std::string& filename, std::vector<uint32_t>& data);
@@ -72,12 +79,24 @@ public:
     bool loadSwitchdata(const std::string& filename);
     bool loadSmdata(const std::string& filename);
     bool loadParams(const std::string& filename);
+    bool loadSymbolTable(const std::string& filename);
+
+    // Symbol table format parsers
+    bool loadSymbolTableTOML(const std::string& filename);
+    bool loadSymbolTableText(const std::string& filename);
     
     // Access methods
     const std::vector<uint32_t>& getVardata() const { return vardata; }
     const std::vector<uint32_t>& getSwitchdata() const { return switchdata; }
     const std::vector<uint64_t>& getSmdata() const { return smdata; }
     const Parameters& getParams() const { return params; }
+
+    // Symbol table access methods (supports TOML format)
+    bool hasSymbolTable() const { return !inputNameToIndex.empty() || !stateNameToIndex.empty(); }
+    uint32_t getInputIndexByName(const std::string& name) const;
+    uint32_t getStateIndexByName(const std::string& name) const;
+    const std::string& getInputNameByIndex(uint32_t index) const;
+    const std::string& getStateNameByIndex(uint32_t index) const;
     
     // Status
     bool isLoaded() const { return loaded; }

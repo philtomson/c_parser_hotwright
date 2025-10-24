@@ -13,6 +13,9 @@ Simulator::Simulator(const SimulatorConfig& cfg)
     , currentCycle(0)
     , cyclesSinceStart(0)
     , breakpointHit(false)
+    , debugMode(false)
+    , debugPaused(false)
+    , breakpointReason("")
 {
     stimulus = std::make_unique<StimulusParser>();
 }
@@ -57,13 +60,21 @@ bool Simulator::initialize() {
         breakpointHit = false;
         
         state = SimulatorState::READY;
-        
+
+        // Enter debug mode if requested
+        if (config.debugMode) {
+            enterDebugMode();
+        }
+
         if (config.verbose) {
             std::cout << "Simulator initialized successfully" << std::endl;
             std::cout << "Base path: " << config.basePath << std::endl;
             std::cout << "Max cycles: " << config.maxCycles << std::endl;
             if (!config.stimulusFile.empty()) {
                 std::cout << "Stimulus file: " << config.stimulusFile << std::endl;
+            }
+            if (config.debugMode) {
+                std::cout << "Debug mode: enabled" << std::endl;
             }
         }
         
@@ -208,7 +219,14 @@ void Simulator::reset() {
     currentCycle = 0;
     cyclesSinceStart = 0;
     breakpointHit = false;
-    
+    breakpointReason = "";
+    debugPaused = false;
+
+    // Clear debugger state
+    watchVariables.clear();
+    watchStates.clear();
+    manualInputs.clear();
+
     if (logger) {
         logger->clear();
     }
@@ -330,6 +348,7 @@ void Simulator::checkBreakpoints() {
         auto states = hotstate->getStates();
         if (stateValue < states.size() && states[stateValue]) {
             breakpointHit = true;
+            breakpointReason = "State[" + std::to_string(stateValue) + "] = 1";
             if (config.debugMode) {
                 std::cout << "State breakpoint hit: state[" << stateValue << "] = 1" << std::endl;
             }
@@ -343,6 +362,7 @@ void Simulator::checkBreakpoints() {
         for (uint32_t addr : config.breakpointAddresses) {
             if (currentAddr == addr) {
                 breakpointHit = true;
+                breakpointReason = "Address = 0x" + toHexString(addr);
                 if (config.debugMode) {
                     std::cout << "Address breakpoint hit: address = 0x" << std::hex << addr << std::dec << std::endl;
                 }
@@ -510,6 +530,337 @@ bool Simulator::exportSummary(const std::string& filename) {
     
     file.close();
     return true;
+}
+
+// === DEBUGGER IMPLEMENTATION ===
+
+void Simulator::enterDebugMode() {
+    debugMode = true;
+    debugPaused = true;
+    if (config.verbose) {
+        std::cout << "Entered debug mode" << std::endl;
+    }
+}
+
+void Simulator::exitDebugMode() {
+    debugMode = false;
+    debugPaused = false;
+    if (config.verbose) {
+        std::cout << "Exited debug mode" << std::endl;
+    }
+}
+
+bool Simulator::debugStep() {
+    if (!hotstate || !debugMode) {
+        return false;
+    }
+
+    if (currentCycle >= config.maxCycles) {
+        return false;
+    }
+
+    // Apply stimulus for current cycle
+    applyStimulus(currentCycle);
+
+    // Advance clock
+    advanceClock();
+
+    // Log the cycle
+    if (logger) {
+        std::vector<uint8_t> inputs = stimulus->getInputs(currentCycle);
+        logger->logCycle(currentCycle, *hotstate, inputs);
+    }
+
+    currentCycle++;
+    cyclesSinceStart++;
+
+    // Print debug info
+    printDebugInfo(currentCycle - 1);
+
+    return true;
+}
+
+void Simulator::debugContinue() {
+    debugPaused = false;
+    if (config.verbose) {
+        std::cout << "Continuing simulation..." << std::endl;
+    }
+}
+
+void Simulator::debugPause() {
+    debugPaused = true;
+    if (config.verbose) {
+        std::cout << "Simulation paused" << std::endl;
+    }
+}
+
+void Simulator::inspectState() const {
+    if (!hotstate) return;
+
+    std::cout << "=== State Inspection ===" << std::endl;
+    std::cout << "Current Address: 0x" << std::hex << hotstate->getCurrentAddress() << std::dec << std::endl;
+    std::cout << "States: ";
+    auto states = hotstate->getStates();
+    for (size_t i = 0; i < states.size(); ++i) {
+        std::cout << states[i];
+    }
+    std::cout << std::endl;
+    std::cout << "Ready: " << (hotstate->isReady() ? "1" : "0") << std::endl;
+    std::cout << "========================" << std::endl;
+}
+
+void Simulator::inspectVariables() const {
+    if (!hotstate) return;
+
+    std::cout << "=== Variable Inspection ===" << std::endl;
+    auto outputs = hotstate->getOutputs();
+    for (size_t i = 0; i < outputs.size(); ++i) {
+        std::cout << "Output[" << i << "] = 0x" << std::hex << static_cast<uint32_t>(outputs[i]) << std::dec << std::endl;
+    }
+    std::cout << "===========================" << std::endl;
+}
+
+void Simulator::inspectMicrocode() const {
+    if (!hotstate) return;
+
+    std::cout << "=== Microcode Inspection ===" << std::endl;
+    uint32_t addr = hotstate->getCurrentAddress();
+    std::cout << "Current Address: 0x" << std::hex << addr << std::dec << std::endl;
+
+    if (addr < memoryLoader.getSmdata().size()) {
+        uint64_t microcode = memoryLoader.getSmdata()[addr];
+        std::cout << "Microcode: 0x" << std::hex << microcode << std::dec << std::endl;
+    }
+
+    hotstate->printMicrocode();
+    std::cout << "============================" << std::endl;
+}
+
+void Simulator::inspectMemory(uint32_t startAddr, uint32_t count) const {
+    std::cout << "=== Memory Inspection ===" << std::endl;
+    std::cout << "Vardata:" << std::endl;
+    auto vardata = memoryLoader.getVardata();
+    for (uint32_t i = startAddr; i < std::min(startAddr + count, static_cast<uint32_t>(vardata.size())); ++i) {
+        std::cout << "  [" << i << "] = 0x" << std::hex << vardata[i] << std::dec << std::endl;
+    }
+
+    std::cout << "Switchdata:" << std::endl;
+    auto switchdata = memoryLoader.getSwitchdata();
+    for (uint32_t i = startAddr; i < std::min(startAddr + count, static_cast<uint32_t>(switchdata.size())); ++i) {
+        std::cout << "  [" << i << "] = " << switchdata[i] << std::endl;
+    }
+    std::cout << "=========================" << std::endl;
+}
+
+void Simulator::inspectStack() const {
+    if (!hotstate) return;
+
+    std::cout << "=== Stack Inspection ===" << std::endl;
+    hotstate->printStack();
+    std::cout << "========================" << std::endl;
+}
+
+void Simulator::inspectControlSignals() const {
+    if (!hotstate) return;
+
+    std::cout << "=== Control Signals ===" << std::endl;
+    hotstate->printControlSignals();
+    std::cout << "========================" << std::endl;
+}
+
+void Simulator::inspectInputs() const {
+    if (!hotstate) return;
+
+    std::cout << "=== Input Inspection ===" << std::endl;
+    std::cout << "Current Inputs: [";
+    for (size_t i = 0; i < manualInputs.size(); ++i) {
+        if (i > 0) std::cout << ", ";
+        std::cout << "0x" << std::hex << static_cast<uint32_t>(manualInputs[i]) << std::dec;
+    }
+    std::cout << "]" << std::endl;
+
+    // Show stimulus inputs if available
+    if (stimulus && !stimulus->isEmpty()) {
+        std::vector<uint8_t> stimulusInputs = stimulus->getInputs(currentCycle);
+        std::cout << "Stimulus Inputs: [";
+        for (size_t i = 0; i < stimulusInputs.size(); ++i) {
+            if (i > 0) std::cout << ", ";
+            std::cout << "0x" << std::hex << static_cast<uint32_t>(stimulusInputs[i]) << std::dec;
+        }
+        std::cout << "]" << std::endl;
+    }
+
+    std::cout << "=========================" << std::endl;
+}
+
+void Simulator::setInputValue(uint32_t inputIndex, uint8_t value) {
+    if (inputIndex >= manualInputs.size()) {
+        manualInputs.resize(inputIndex + 1, 0);
+    }
+    manualInputs[inputIndex] = value;
+
+    if (hotstate) {
+        std::vector<uint8_t> inputs = manualInputs;
+        hotstate->setInputs(inputs);
+    }
+
+    if (config.verbose) {
+        std::cout << "Set input[" << inputIndex << "] = 0x" << std::hex << static_cast<uint32_t>(value) << std::dec << std::endl;
+    }
+}
+
+void Simulator::setVariableValue(uint32_t varIndex, uint8_t value) {
+    if (hotstate) {
+        auto outputs = hotstate->getOutputs();
+        if (varIndex < outputs.size()) {
+            std::vector<uint8_t> newOutputs = outputs;
+            newOutputs[varIndex] = value;
+            hotstate->setInputs(newOutputs); // This will be treated as variable inputs
+        }
+    }
+
+    if (config.verbose) {
+        std::cout << "Set variable[" << varIndex << "] = 0x" << std::hex << static_cast<uint32_t>(value) << std::dec << std::endl;
+    }
+}
+
+bool Simulator::setInputValueByName(const std::string& name, uint8_t value) {
+    if (memoryLoader.hasSymbolTable()) {
+        uint32_t index = memoryLoader.getInputIndexByName(name);
+        if (index != UINT32_MAX) {
+            setInputValue(index, value);
+            return true;
+        }
+    }
+    std::cout << "Error: Input variable '" << name << "' not found in symbol table" << std::endl;
+    return false;
+}
+
+bool Simulator::setVariableValueByName(const std::string& name, uint8_t value) {
+    if (memoryLoader.hasSymbolTable()) {
+        uint32_t index = memoryLoader.getStateIndexByName(name);
+        if (index != UINT32_MAX) {
+            setVariableValue(index, value);
+            return true;
+        }
+    }
+    std::cout << "Error: State variable '" << name << "' not found in symbol table" << std::endl;
+    return false;
+}
+
+void Simulator::addWatchVariable(uint32_t varIndex) {
+    watchVariables.push_back(varIndex);
+    if (config.verbose) {
+        std::cout << "Added watch for variable[" << varIndex << "]" << std::endl;
+    }
+}
+
+void Simulator::addWatchState(uint32_t stateIndex) {
+    watchStates.push_back(stateIndex);
+    if (config.verbose) {
+        std::cout << "Added watch for state[" << stateIndex << "]" << std::endl;
+    }
+}
+
+void Simulator::removeWatch(uint32_t watchIndex) {
+    if (watchIndex < watchVariables.size()) {
+        watchVariables.erase(watchVariables.begin() + watchIndex);
+    } else if (watchIndex < watchVariables.size() + watchStates.size()) {
+        watchStates.erase(watchStates.begin() + (watchIndex - watchVariables.size()));
+    }
+}
+
+void Simulator::clearWatches() {
+    watchVariables.clear();
+    watchStates.clear();
+    if (config.verbose) {
+        std::cout << "Cleared all watches" << std::endl;
+    }
+}
+
+void Simulator::listWatches() const {
+    std::cout << "=== Watch List ===" << std::endl;
+    for (size_t i = 0; i < watchVariables.size(); ++i) {
+        std::cout << "Watch " << i << ": Variable[" << watchVariables[i] << "]" << std::endl;
+    }
+    for (size_t i = 0; i < watchStates.size(); ++i) {
+        std::cout << "Watch " << (i + watchVariables.size()) << ": State[" << watchStates[i] << "]" << std::endl;
+    }
+    std::cout << "==================" << std::endl;
+}
+
+void Simulator::evaluateWatches() const {
+    if (!hotstate) return;
+
+    std::cout << "=== Watch Evaluation ===" << std::endl;
+
+    auto outputs = hotstate->getOutputs();
+    for (size_t i = 0; i < watchVariables.size(); ++i) {
+        uint32_t varIndex = watchVariables[i];
+        if (varIndex < outputs.size()) {
+            std::cout << "Variable[" << varIndex << "] = 0x" << std::hex << static_cast<uint32_t>(outputs[varIndex]) << std::dec << std::endl;
+        }
+    }
+
+    auto states = hotstate->getStates();
+    for (size_t i = 0; i < watchStates.size(); ++i) {
+        uint32_t stateIndex = watchStates[i];
+        if (stateIndex < states.size()) {
+            std::cout << "State[" << stateIndex << "] = " << states[stateIndex] << std::endl;
+        }
+    }
+
+    std::cout << "========================" << std::endl;
+}
+
+void Simulator::printCurrentInstruction() const {
+    if (!hotstate) return;
+
+    std::cout << "=== Current Instruction ===" << std::endl;
+    uint32_t addr = hotstate->getCurrentAddress();
+    std::cout << "Address: 0x" << std::hex << addr << std::dec << std::endl;
+
+    if (addr < memoryLoader.getSmdata().size()) {
+        uint64_t microcode = memoryLoader.getSmdata()[addr];
+        std::cout << "Microcode: 0x" << std::hex << microcode << std::dec << std::endl;
+
+        // Decode the microcode fields
+        std::cout << "Decoded fields:" << std::endl;
+
+        // Extract basic fields (this is simplified - full decoding would need the parameter widths)
+        uint32_t stateValue = microcode & 0xFF;
+        uint32_t transitionValue = (microcode >> 8) & 0xFF;
+        uint32_t jadr = (microcode >> 16) & 0xFF;
+
+        std::cout << "  State Value: 0x" << std::hex << stateValue << std::dec << std::endl;
+        std::cout << "  Transition Value: 0x" << std::hex << transitionValue << std::dec << std::endl;
+        std::cout << "  Jump Address: 0x" << std::hex << jadr << std::dec << std::endl;
+    }
+
+    std::cout << "==========================" << std::endl;
+}
+
+void Simulator::printMicrocodeAt(uint32_t address) const {
+    std::cout << "=== Microcode at Address 0x" << std::hex << address << std::dec << " ===" << std::endl;
+
+    if (address < memoryLoader.getSmdata().size()) {
+        uint64_t microcode = memoryLoader.getSmdata()[address];
+        std::cout << "Microcode: 0x" << std::hex << microcode << std::dec << std::endl;
+    } else {
+        std::cout << "Address out of range" << std::endl;
+    }
+
+    std::cout << "================================" << std::endl;
+}
+
+std::string Simulator::getBreakpointReason() const {
+    return breakpointReason;
+}
+
+std::string toHexString(uint32_t value) {
+    std::stringstream ss;
+    ss << "0x" << std::hex << value;
+    return ss.str();
 }
 
 std::string stateToString(SimulatorState state) {

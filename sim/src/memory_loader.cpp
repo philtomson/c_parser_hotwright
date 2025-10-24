@@ -42,6 +42,12 @@ bool MemoryLoader::loadFromBasePath(const std::string& basePath) {
     success &= loadSwitchdata(baseFilename + "_switchdata.mem");
     success &= loadSmdata(baseFilename + "_smdata.mem");
     success &= loadParams(baseFilename + "_params.vh");
+
+    // Try to load symbol table (TOML format preferred, with fallback to text format)
+    if (!loadSymbolTable(baseFilename + "_symbols.toml")) {
+        // Fallback to old text format for backward compatibility
+        loadSymbolTable(baseFilename + "_symbols.txt");
+    }
     
     if (success) {
         loaded = true;
@@ -412,6 +418,181 @@ void MemoryLoader::printSmdata(size_t maxEntries) const {
         std::cout << "... (" << (smdata.size() - maxEntries) << " more entries)" << std::endl;
     }
     std::cout << "========================" << std::endl;
+}
+
+// Load symbol table file (supports both TOML and text formats for backward compatibility)
+bool MemoryLoader::loadSymbolTable(const std::string& filename) {
+    std::ifstream file(filename);
+    if (!file.is_open()) {
+        // Symbol table is optional, so don't treat this as an error
+        std::cout << "DEBUG: Symbol table file not found: " << filename << " (optional)" << std::endl;
+        return false;
+    }
+
+    // Check if this is a TOML file by looking for TOML section headers
+    std::string first_line, second_line;
+    std::getline(file, first_line);
+    std::getline(file, second_line);
+
+    file.close();
+
+    // Check for TOML format indicators
+    bool is_toml = (first_line.find("[metadata]") != std::string::npos ||
+                   first_line.find("[state_variables]") != std::string::npos ||
+                   first_line.find("[input_variables]") != std::string::npos ||
+                   second_line.find("[metadata]") != std::string::npos ||
+                   second_line.find("[state_variables]") != std::string::npos ||
+                   second_line.find("[input_variables]") != std::string::npos);
+
+    if (is_toml) {
+        return loadSymbolTableTOML(filename);
+    } else {
+        return loadSymbolTableText(filename);
+    }
+}
+
+// TOML format parser
+bool MemoryLoader::loadSymbolTableTOML(const std::string& filename) {
+    std::ifstream file(filename);
+    if (!file.is_open()) {
+        return false;
+    }
+
+    std::string line;
+    std::string current_section;
+    bool in_state_vars = false;
+    bool in_input_vars = false;
+
+    while (std::getline(file, line)) {
+        // Skip comments and empty lines
+        if (line.empty() || line[0] == '#') {
+            continue;
+        }
+
+        // Check for section headers
+        if (line.find("[state_variables]") == 0) {
+            current_section = "state_variables";
+            in_state_vars = true;
+            in_input_vars = false;
+            continue;
+        } else if (line.find("[input_variables]") == 0) {
+            current_section = "input_variables";
+            in_state_vars = false;
+            in_input_vars = true;
+            continue;
+        }
+
+        // Parse variable entries (format: "index" = { name = "var_name", type = "input/output" })
+        if ((in_state_vars || in_input_vars) && line.find('=') != std::string::npos) {
+            // Extract index (quoted number before =)
+            size_t quote_start = line.find('"');
+            if (quote_start == std::string::npos) continue;
+            size_t quote_end = line.find('"', quote_start + 1);
+            if (quote_end == std::string::npos) continue;
+
+            std::string index_str = line.substr(quote_start + 1, quote_end - quote_start - 1);
+            uint32_t index = std::stoul(index_str);
+
+            // Extract name (from name = "value")
+            size_t name_start = line.find("name = \"");
+            if (name_start == std::string::npos) continue;
+            name_start += 8; // Skip "name = \""
+            size_t name_end = line.find('"', name_start);
+            if (name_end == std::string::npos) continue;
+
+            std::string name = line.substr(name_start, name_end - name_start);
+
+            // Add to appropriate map
+            if (in_state_vars) {
+                stateNameToIndex[name] = index;
+                stateIndexToName[index] = name;
+            } else if (in_input_vars) {
+                inputNameToIndex[name] = index;
+                inputIndexToName[index] = name;
+            }
+        }
+    }
+
+    file.close();
+
+    if (!inputNameToIndex.empty() || !stateNameToIndex.empty()) {
+        std::cout << "Loaded TOML symbol table from " << filename << std::endl;
+        std::cout << "  Input variables: " << inputNameToIndex.size() << std::endl;
+        std::cout << "  State variables: " << stateNameToIndex.size() << std::endl;
+    }
+
+    return true;
+}
+
+// Text format parser (original implementation for backward compatibility)
+bool MemoryLoader::loadSymbolTableText(const std::string& filename) {
+    std::ifstream file(filename);
+    if (!file.is_open()) {
+        return false;
+    }
+
+    std::string line;
+    int lineNumber = 0;
+
+    while (std::getline(file, line)) {
+        lineNumber++;
+        // Skip comments and empty lines
+        if (line.empty() || line[0] == '#') {
+            continue;
+        }
+
+        std::istringstream iss(line);
+        std::string type, name;
+        uint32_t index;
+
+        if (!(iss >> type >> index >> name)) {
+            std::cerr << "Warning: Invalid symbol table format at line " << lineNumber << ": " << line << std::endl;
+            continue;
+        }
+
+        if (type == "INPUT") {
+            inputNameToIndex[name] = index;
+            inputIndexToName[index] = name;
+        } else if (type == "STATE") {
+            stateNameToIndex[name] = index;
+            stateIndexToName[index] = name;
+        } else {
+            std::cerr << "Warning: Unknown symbol type at line " << lineNumber << ": " << type << std::endl;
+        }
+    }
+
+    file.close();
+
+    if (!inputNameToIndex.empty() || !stateNameToIndex.empty()) {
+        std::cout << "Loaded text symbol table from " << filename << std::endl;
+        std::cout << "  Input variables: " << inputNameToIndex.size() << std::endl;
+        std::cout << "  State variables: " << stateNameToIndex.size() << std::endl;
+    }
+
+    return true;
+}
+
+// Symbol table accessor methods
+uint32_t MemoryLoader::getInputIndexByName(const std::string& name) const {
+    auto it = inputNameToIndex.find(name);
+    return (it != inputNameToIndex.end()) ? it->second : UINT32_MAX;
+}
+
+uint32_t MemoryLoader::getStateIndexByName(const std::string& name) const {
+    auto it = stateNameToIndex.find(name);
+    return (it != stateNameToIndex.end()) ? it->second : UINT32_MAX;
+}
+
+const std::string& MemoryLoader::getInputNameByIndex(uint32_t index) const {
+    auto it = inputIndexToName.find(index);
+    static std::string empty = "";
+    return (it != inputIndexToName.end()) ? it->second : empty;
+}
+
+const std::string& MemoryLoader::getStateNameByIndex(uint32_t index) const {
+    auto it = stateIndexToName.find(index);
+    static std::string empty = "";
+    return (it != stateIndexToName.end()) ? it->second : empty;
 }
 
 } // namespace HotstateSim

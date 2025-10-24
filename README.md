@@ -1,6 +1,6 @@
 # C Parser with support for Hotwright microcode generation
 
-A recursive descent C parser that builds an Abstract Syntax Tree (AST), generates Control Flow Graphs (CFG), and synthesizes hardware microcode and Verilog HDL for FPGA implementation.
+A recursive descent C parser that builds an Abstract Syntax Tree (AST), generates Control Flow Graphs (CFG), and generates hardware microcode and Verilog HDL for FPGA implementation.
 
 ## Features
 
@@ -36,7 +36,6 @@ A recursive descent C parser that builds an Abstract Syntax Tree (AST), generate
 - **Microcode Generation**: Produces hotstate-compatible microcode for FPGA implementation
 - **Verilog HDL Generation**: Creates synthesizable Verilog modules and testbenches
 - **Memory File Generation**: Outputs .mem files for FPGA synthesis tools
-- **Complete C-to-Hardware Flow**: From C source code to ready-to-synthesize HDL
 
 ## Building
 
@@ -140,14 +139,14 @@ int main() {
 
 ### C23 `_BitInt` Support
 
-The parser supports C23 `_BitInt` types with a unique bit-indexing feature:
+The parser supports C23 `_BitInt` types with additional bit-indexing feature:
 
 ```c
 int main() {
     _BitInt(3) x = {1, 0, 1};  // x = 5 (binary 101)
     _BitInt(8) byte = 255;     // 8-bit integer
     
-    if (x[1]) {                // Test bit 1
+    if (x[1]) {                // Test bit 1 (NOT C23 compatible)
         x[2] = 0;              // Clear bit 2
     }
     
@@ -158,7 +157,7 @@ int main() {
 
 See `docs/bitint_feature.md` for complete documentation.
 
-### Enhanced Error Messages
+### Error Messages
 
 The parser provides detailed error reporting with line and column information:
 
@@ -171,6 +170,7 @@ Parse Error at line 2, column 14: _BitInt width must be positive
 ## Project Structure
 
 ```
+/src
 ├── lexer.h/c              # Lexical analyzer
 ├── parser.h/c             # Recursive descent parser
 ├── ast.h/c                # AST node definitions
@@ -185,7 +185,7 @@ Parse Error at line 2, column 14: _BitInt width must be positive
 ├── test_cfg.c             # CFG test suite
 ├── test/                  # Test C programs
 │   └── test_hardware_local.c  # Hardware synthesis example
-└── docs/                  # Documentation
+docs/                  # Documentation
     ├── cfg_ssa_design.md  # Detailed CFG/SSA design
     └── hardware_synthesis.md  # Hardware synthesis documentation
 ```
@@ -227,52 +227,26 @@ make graphs
 ./c_parser [OPTIONS] <filename.c>
 
 Options:
-  --dot        Generate a DOT file for CFG visualization
-  --debug      Enable debug output messages
-  --hardware   Analyze hardware constructs (state/input variables)
-  --microcode  Generate hotstate-compatible microcode
-  --verilog    Generate Verilog HDL module
-  --testbench  Generate Verilog testbench
-  --all-hdl    Generate all HDL files (module, testbench, stimulus, makefile)
+  --dot          Generate a DOT file for CFG visualization
+  --debug        Enable debug output messages
+  --hardware     Analyze hardware constructs (state/input variables)
+  --microcode    Generate microcode from CFG
+  --microcode-hs Generate hotstate-compatible microcode from the AST
+  --verilog      Generate Verilog HDL module
+  --testbench    Generate Verilog testbench
+  --all-hdl      Generate all HDL files (module, testbench, stimulus, makefile)
 ```
 
 ## Future Work
 
 See `docs/cfg_ssa_design.md` for planned enhancements:
-- Full Static Single Assignment (SSA) form with phi functions
+- Static Single Assignment (SSA) intermediate form with phi functions
 - Optimization passes (constant propagation, dead code elimination)
 - Advanced hardware optimizations (state minimization)
-- Global variable support for hardware synthesis
 - VHDL HDL generation
 - Advanced analyses (dominance, loop detection)
 
 ## Developer Information
-
-### Debug Output
-
-The parser includes a centralized debug output system:
-
-```c
-// Use this function instead of printf for debug output
-print_debug("DEBUG: Processing node type %d\n", node->type);
-
-// The function automatically checks debug_mode and only prints when enabled
-// Equivalent to:
-// if (debug_mode) {
-//     printf("DEBUG: Processing node type %d\n", node->type);
-// }
-```
-
-**Benefits:**
-- Cleaner code without scattered `if (debug_mode)` checks
-- Centralized debug control
-- Support for printf-style formatting with variable arguments
-- Easy to enable/disable debug output globally
-
-**Usage in Code:**
-- Include `ast.h` to access the `print_debug()` function
-- Replace `if (debug_mode) { printf(...); }` with `print_debug(...)`
-- The function handles the debug mode check internally
 
 ## Documentation
 

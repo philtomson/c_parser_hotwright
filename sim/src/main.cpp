@@ -3,6 +3,7 @@
 #include <iostream>
 #include <iomanip>
 #include <getopt.h>
+#include <cctype>
 
 namespace HotstateSim {
 
@@ -18,7 +19,7 @@ void printUsage(const char* programName) {
     std::cout << "  -o, --output FILE        Output file (for non-console formats)" << std::endl;
     std::cout << "  -f, --format FORMAT      Output format (console|vcd|csv|json) [default: console]" << std::endl;
     std::cout << "  -m, --max-cycles NUM     Maximum number of cycles to simulate [default: 1000]" << std::endl;
-    std::cout << "  -d, --debug              Enable debug mode" << std::endl;
+    std::cout << "  -d, --debug              Enable interactive debug mode" << std::endl;
     std::cout << "  -v, --verbose            Enable verbose output" << std::endl;
     std::cout << "  -q, --quiet              Suppress non-error output" << std::endl;
     std::cout << "  --no-realtime            Disable real-time output" << std::endl;
@@ -32,7 +33,7 @@ void printUsage(const char* programName) {
     std::cout << "Examples:" << std::endl;
     std::cout << "  " << programName << " -b test_hybrid_varsel -s stimulus.txt" << std::endl;
     std::cout << "  " << programName << " -b test_hybrid_varsel -f vcd -o trace.vcd" << std::endl;
-    std::cout << "  " << programName << " -b test_hybrid_varsel -d --breakpoint-state 1" << std::endl;
+    std::cout << "  " << programName << " -b test_hybrid_varsel -d" << std::endl;
     std::cout << "  " << programName << " -b test_hybrid_varsel -m 10000 --export results.csv" << std::endl;
 }
 
@@ -189,36 +190,151 @@ int runInteractiveMode(Simulator& simulator) {
         iss >> command;
         
         if (command == "help") {
-            std::cout << "Available commands:" << std::endl;
-            std::cout << "  run         - Run simulation" << std::endl;
-            std::cout << "  step [N]    - Step N cycles (default: 1)" << std::endl;
-            std::cout << "  pause       - Pause simulation" << std::endl;
-            std::cout << "  reset       - Reset simulation" << std::endl;
-            std::cout << "  state       - Show current state" << std::endl;
-            std::cout << "  stats       - Show statistics" << std::endl;
-            std::cout << "  bp state N  - Add state breakpoint" << std::endl;
-            std::cout << "  bp addr HEX - Add address breakpoint" << std::endl;
-            std::cout << "  bp clear    - Clear all breakpoints" << std::endl;
-            std::cout << "  bp list     - List breakpoints" << std::endl;
-            std::cout << "  quit        - Exit simulator" << std::endl;
+            std::cout << "=== Debugger Commands ===" << std::endl;
+            std::cout << "Simulation Control:" << std::endl;
+            std::cout << "  run              - Run simulation until breakpoint or end" << std::endl;
+            std::cout << "  step [N]         - Step N cycles (default: 1)" << std::endl;
+            std::cout << "  continue         - Continue from breakpoint" << std::endl;
+            std::cout << "  pause            - Pause simulation" << std::endl;
+            std::cout << "  reset            - Reset simulation" << std::endl;
+            std::cout << "  quit             - Exit simulator" << std::endl;
+            std::cout << "  exit             - Exit simulator (alias for quit)" << std::endl;
+            std::cout << std::endl;
+            std::cout << "Inspection Commands:" << std::endl;
+            std::cout << "  state            - Show current state" << std::endl;
+            std::cout << "  vars             - Show variables/outputs" << std::endl;
+            std::cout << "  microcode        - Show current microcode instruction" << std::endl;
+            std::cout << "  memory [start] [count] - Inspect memory (default: 0, 16)" << std::endl;
+            std::cout << "  stack            - Show call stack" << std::endl;
+            std::cout << "  signals          - Show control signals" << std::endl;
+            std::cout << "  inputs           - Show current input values" << std::endl;
+            std::cout << "  watch            - Evaluate all watch expressions" << std::endl;
+            std::cout << std::endl;
+            std::cout << "Breakpoint Commands:" << std::endl;
+            std::cout << "  bp state N       - Add state breakpoint" << std::endl;
+            std::cout << "  bp addr HEX      - Add address breakpoint" << std::endl;
+            std::cout << "  bp clear         - Clear all breakpoints" << std::endl;
+            std::cout << "  bp list          - List breakpoints" << std::endl;
+            std::cout << std::endl;
+            std::cout << "Watch Commands:" << std::endl;
+            std::cout << "  watch var N      - Add variable watch" << std::endl;
+            std::cout << "  watch state N    - Add state watch" << std::endl;
+            std::cout << "  watch clear      - Clear all watches" << std::endl;
+            std::cout << "  watch list       - List watches" << std::endl;
+            std::cout << std::endl;
+            std::cout << "Manual Control:" << std::endl;
+            std::cout << "  set input N VAL  - Set input N to value VAL" << std::endl;
+            std::cout << "  set input NAME VAL - Set input NAME to value VAL (if symbol table available)" << std::endl;
+            std::cout << "  set var N VAL    - Set variable N to value VAL" << std::endl;
+            std::cout << "  set var NAME VAL - Set variable NAME to value VAL (if symbol table available)" << std::endl;
+            std::cout << "  info             - Show current instruction info" << std::endl;
+            std::cout << "  stats            - Show simulation statistics" << std::endl;
             
         } else if (command == "run") {
+            simulator.debugContinue();
             simulator.run();
-            
+
         } else if (command == "step") {
             uint32_t steps = 1;
             iss >> steps;
-            simulator.step(steps);
-            
+            for (uint32_t i = 0; i < steps; ++i) {
+                if (!simulator.debugStep()) break;
+            }
+
+        } else if (command == "continue") {
+            simulator.debugContinue();
+            simulator.run();
+
         } else if (command == "pause") {
-            simulator.pause();
-            
+            simulator.debugPause();
+
         } else if (command == "reset") {
             simulator.reset();
-            
+
         } else if (command == "state") {
-            simulator.printCurrentState();
-            
+            simulator.inspectState();
+
+        } else if (command == "vars") {
+            simulator.inspectVariables();
+
+        } else if (command == "microcode") {
+            simulator.inspectMicrocode();
+
+        } else if (command == "memory") {
+            uint32_t start = 0, count = 16;
+            iss >> start >> count;
+            simulator.inspectMemory(start, count);
+
+        } else if (command == "stack") {
+            simulator.inspectStack();
+
+        } else if (command == "signals") {
+            simulator.inspectControlSignals();
+
+        } else if (command == "inputs") {
+            simulator.inspectInputs();
+
+        } else if (command == "watch") {
+            std::string subcommand;
+            iss >> subcommand;
+
+            if (subcommand == "var") {
+                uint32_t varIndex;
+                iss >> varIndex;
+                simulator.addWatchVariable(varIndex);
+
+            } else if (subcommand == "state") {
+                uint32_t stateIndex;
+                iss >> stateIndex;
+                simulator.addWatchState(stateIndex);
+
+            } else if (subcommand == "clear") {
+                simulator.clearWatches();
+
+            } else if (subcommand == "list") {
+                simulator.listWatches();
+
+            } else {
+                simulator.evaluateWatches();
+            }
+
+        } else if (command == "set") {
+            std::string type, target;
+            uint32_t value;
+
+            iss >> type >> target >> value;
+
+            if (type == "input") {
+                // Try to parse as name first, then as index
+                if (std::isdigit(target[0])) {
+                    // It's a numeric index
+                    uint32_t index = std::stoul(target);
+                    simulator.setInputValue(index, static_cast<uint8_t>(value));
+                } else {
+                    // It's a variable name
+                    if (!simulator.setInputValueByName(target, static_cast<uint8_t>(value))) {
+                        std::cout << "Usage: set input <name> <value> or set input <index> <value>" << std::endl;
+                    }
+                }
+            } else if (type == "var") {
+                // Try to parse as name first, then as index
+                if (std::isdigit(target[0])) {
+                    // It's a numeric index
+                    uint32_t index = std::stoul(target);
+                    simulator.setVariableValue(index, static_cast<uint8_t>(value));
+                } else {
+                    // It's a variable name
+                    if (!simulator.setVariableValueByName(target, static_cast<uint8_t>(value))) {
+                        std::cout << "Usage: set var <name> <value> or set var <index> <value>" << std::endl;
+                    }
+                }
+            } else {
+                std::cout << "Usage: set input <name> <value>, set input <index> <value>, set var <name> <value>, or set var <index> <value>" << std::endl;
+            }
+
+        } else if (command == "info") {
+            simulator.printCurrentInstruction();
+
         } else if (command == "stats") {
             simulator.printStatistics();
             
@@ -254,7 +370,7 @@ int runInteractiveMode(Simulator& simulator) {
                 std::cout << "Unknown breakpoint command. Use 'bp state', 'bp addr', 'bp clear', or 'bp list'" << std::endl;
             }
             
-        } else if (command == "quit") {
+        } else if (command == "quit" || command == "exit") {
             break;
             
         } else {
@@ -283,10 +399,15 @@ int main(int argc, char* argv[]) {
         
         // Create and initialize simulator
         Simulator simulator(config);
-        
+
         if (!simulator.initialize()) {
             std::cerr << "Failed to initialize simulator: " << simulator.getLastError() << std::endl;
             return 1;
+        }
+
+        // If debug mode is enabled, enter interactive mode
+        if (config.debugMode) {
+            return runInteractiveMode(simulator);
         }
         
         // Check for export options
@@ -335,10 +456,6 @@ int main(int argc, char* argv[]) {
             }
             
             success = true;
-            
-        } else if (config.debugMode) {
-            // Interactive debug mode
-            success = runInteractiveMode(simulator) == 0;
             
         } else {
             // Normal run

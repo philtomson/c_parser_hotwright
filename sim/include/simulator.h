@@ -60,6 +60,14 @@ private:
     uint32_t cyclesSinceStart;
     bool breakpointHit;
     std::string lastError;
+    std::string breakpointReason;
+
+    // Debugger state
+    bool debugMode;
+    bool debugPaused;
+    std::vector<uint32_t> watchVariables;
+    std::vector<uint32_t> watchStates;
+    std::vector<uint8_t> manualInputs;
     
     // Internal methods
     bool loadMemoryFiles();
@@ -123,6 +131,45 @@ public:
     void addAddressBreakpoint(uint32_t address);
     void clearBreakpoints();
     void listBreakpoints() const;
+
+    // Debugger features
+    void enterDebugMode();
+    void exitDebugMode();
+    bool isInDebugMode() const { return debugMode; }
+
+    // Single-step debugging
+    bool debugStep();
+    void debugContinue();
+    void debugPause();
+
+    // State inspection
+    void inspectState() const;
+    void inspectVariables() const;
+    void inspectMicrocode() const;
+    void inspectMemory(uint32_t startAddr = 0, uint32_t count = 16) const;
+    void inspectStack() const;
+    void inspectControlSignals() const;
+    void inspectInputs() const;
+
+    // Manual input setting
+    void setInputValue(uint32_t inputIndex, uint8_t value);
+    void setVariableValue(uint32_t varIndex, uint8_t value);
+    bool setInputValueByName(const std::string& name, uint8_t value);
+    bool setVariableValueByName(const std::string& name, uint8_t value);
+
+    // Watch functionality
+    void addWatchVariable(uint32_t varIndex);
+    void addWatchState(uint32_t stateIndex);
+    void removeWatch(uint32_t watchIndex);
+    void clearWatches();
+    void listWatches() const;
+    void evaluateWatches() const;
+
+    // Microcode debugging
+    void printCurrentInstruction() const;
+    void printMicrocodeAt(uint32_t address) const;
+    bool isBreakpointHit() const { return breakpointHit; }
+    std::string getBreakpointReason() const;
     
     // Export
     bool exportResults(const std::string& filename, OutputFormat format = OutputFormat::CSV);
@@ -138,6 +185,7 @@ public:
 
 // Utility function declarations
 std::string stateToString(SimulatorState state);
+std::string toHexString(uint32_t value);
 
 } // namespace HotstateSim
 

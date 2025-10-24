@@ -279,6 +279,53 @@ void print_variable_mappings(HotstateMicrocode* mc, FILE* output) {
     fprintf(output, "\n");
 }
 
+// Generate symbol table file for simulator in TOML format
+void generate_symbol_table_file(CompactMicrocode* mc, const char* filename) {
+    FILE* file = fopen(filename, "w");
+    if (!file) {
+        fprintf(stderr, "Error: Cannot create symbol table file '%s'\n", filename);
+        return;
+    }
+
+    // Write TOML header with metadata
+    fprintf(file, "# Symbol table for simulator\n");
+    fprintf(file, "# Generated from %s\n", mc->function_name);
+    fprintf(file, "\n");
+    fprintf(file, "[metadata]\n");
+    fprintf(file, "generated_from = \"%s\"\n", mc->function_name);
+    fprintf(file, "format_version = \"1.0\"\n");
+    fprintf(file, "variable_count = %d\n", mc->hw_ctx ? mc->hw_ctx->state_count + mc->hw_ctx->input_count : 0);
+    fprintf(file, "\n");
+
+    // Write state variables section
+    fprintf(file, "[state_variables]\n");
+    if (mc->hw_ctx) {
+        for (int i = 0; i < mc->hw_ctx->state_count; i++) {
+            StateVariable* state = &mc->hw_ctx->states[i];
+            fprintf(file, "\"%d\" = { name = \"%s\", type = \"output\" }\n",
+                    state->state_number, state->name);
+        }
+    }
+    fprintf(file, "\n");
+
+    // Write input variables section
+    fprintf(file, "[input_variables]\n");
+    if (mc->hw_ctx) {
+        for (int i = 0; i < mc->hw_ctx->input_count; i++) {
+            InputVariable* input = &mc->hw_ctx->inputs[i];
+            fprintf(file, "\"%d\" = { name = \"%s\", type = \"input\" }\n",
+                    input->input_number, input->name);
+        }
+    }
+    fprintf(file, "\n");
+
+    fclose(file);
+
+    if (debug_mode) {
+        printf("Generated TOML symbol table file: %s\n", filename);
+    }
+}
+
 
 void generate_switchdata_mem_file(CompactMicrocode* mc, const char* filename) {
     FILE* file = fopen(filename, "w");
@@ -451,14 +498,20 @@ void debug_print_filepaths(const char* source_filename) {
     char* smdata_filepath = generate_output_filepath(source_filename, "_smdata.mem");
     char* vardata_filepath = generate_output_filepath(source_filename, "_vardata.mem");
     char* params_filepath = generate_output_filepath(source_filename, "_params.vh");
- 
+    char* switchdata_filepath = generate_output_filepath(source_filename, "_switchdata.mem");
+    char* symbol_filepath = generate_output_filepath(source_filename, "_symbols.txt");
+
     printf("Debug: smdata_filepath = %s\n", smdata_filepath);
     printf("Debug: vardata_filepath = %s\n", vardata_filepath);
     printf("Debug: params_filepath = %s\n", params_filepath);
- 
+    printf("Debug: switchdata_filepath = %s\n", switchdata_filepath);
+    printf("Debug: symbol_filepath = %s\n", symbol_filepath);
+
     free(smdata_filepath);
     free(vardata_filepath);
     free(params_filepath);
+    free(switchdata_filepath);
+    free(symbol_filepath);
 }
  
 void generate_all_output_files(CompactMicrocode* mc, const char* source_filename) {
@@ -467,27 +520,31 @@ void generate_all_output_files(CompactMicrocode* mc, const char* source_filename
     char* smdata_filepath = generate_output_filepath(source_filename, "_smdata.mem");
     char* vardata_filepath = generate_output_filepath(source_filename, "_vardata.mem");
     char* params_filepath = generate_output_filepath(source_filename, "_params.vh");
-    char* switchdata_filepath = generate_output_filepath(source_filename, "_switchdata.mem"); // New
- 
-    // Add debug print here
-    debug_print_filepaths(source_filename);
- 
-    if (!smdata_filepath || !vardata_filepath || !params_filepath || !switchdata_filepath) { // Updated condition
+    char* switchdata_filepath = generate_output_filepath(source_filename, "_switchdata.mem");
+    char* symbol_filepath = generate_output_filepath(source_filename, "_symbols.toml"); // New
+
+    if (!smdata_filepath || !vardata_filepath || !params_filepath || !switchdata_filepath || !symbol_filepath) { // Updated condition
         // Handle allocation errors, already printed inside generate_output_filepath
         free(smdata_filepath);
         free(vardata_filepath);
         free(params_filepath);
-        free(switchdata_filepath); // Free new path
+        free(switchdata_filepath);
+        free(symbol_filepath); // Free new path
         return;
     }
- 
+
+    // Add debug print here after all paths are generated
+    debug_print_filepaths(source_filename);
+
     generate_microcode_params_vh(mc, params_filepath);
     generate_smdata_mem_file(mc, smdata_filepath);
     generate_vardata_mem_file(mc, vardata_filepath);
-    generate_switchdata_mem_file(mc, switchdata_filepath); // Call new function
- 
+    generate_switchdata_mem_file(mc, switchdata_filepath);
+    generate_symbol_table_file(mc, symbol_filepath); // Generate symbol table
+
     free(smdata_filepath);
     free(vardata_filepath);
     free(params_filepath);
-    free(switchdata_filepath); // Free new path
+    free(switchdata_filepath);
+    free(symbol_filepath); // Free new path
 }
