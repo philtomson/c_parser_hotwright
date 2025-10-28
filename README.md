@@ -40,7 +40,6 @@ A recursive descent C parser that builds an Abstract Syntax Tree (AST), generate
 ## Building
 
 ```bash
-cd src
 make clean
 make all
 ```
