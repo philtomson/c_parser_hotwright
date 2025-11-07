@@ -108,7 +108,5 @@ Both projects demonstrate different approaches to C parsing:
 - **Your approach**: Hand-written, focused on modern C features, educational/analytical
 - **Hotstate approach**: Grammar-based, hardware-oriented, production-focused for FPGA development
 
-The hotstate project shows how C parsing can be applied to hardware design, making it a fascinating parallel to your software-focused parser. It's particularly interesting that both projects generate DOT files for visualization, but hotstate's ultimate goal is hardware synthesis rather than program analysis.
-
 
 See docs/hotstate_code_overview.md for a deep dive into the hotstate codebase.
