@@ -325,7 +325,6 @@ void free_node(Node* node) {
             free(n->value);
             break;
         }
-        // These cases were likely missing from my previous incomplete answer.
         case NODE_IF: {
             IfNode* n = (IfNode*)node;
             free_node(n->condition);
@@ -347,7 +346,7 @@ void free_node(Node* node) {
             free_node(n->body);
             break;
         }
-         case NODE_RETURN: {
+        case NODE_RETURN: {
             ReturnNode* n = (ReturnNode*)node;
             free_node(n->return_value);
             break;
@@ -371,6 +370,28 @@ void free_node(Node* node) {
         case NODE_INITIALIZER_LIST: {
             InitializerListNode* n = (InitializerListNode*)node;
             free_node_list(n->elements);
+            break;
+        }
+        case NODE_GOTO: {
+            GotoNode* n = (GotoNode*)node;
+            // label_name is allocated in the parser, free it here
+            free(n->label_name);
+            break;
+        }
+        case NODE_LABEL: {
+            LabelNode* n = (LabelNode*)node;
+            // Free the label name and the labeled statement (if present)
+            if (n->label_name) {
+                free(n->label_name);
+            }
+            if (n->statement) {
+                free_node(n->statement);
+            }
+            break;
+        }
+        default: {
+            // Fallback for any future/unknown node types to avoid silent leaks.
+            print_debug("DEBUG: free_node: unhandled node type %d\n", node->type);
             break;
         }
     }

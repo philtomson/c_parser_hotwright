@@ -179,7 +179,7 @@ CFG* build_function_cfg(FunctionDefNode* func) {
     for (int i = 0; i < func->parameters->count; i++) {
         IdentifierNode* param = (IdentifierNode*)func->parameters->items[i];
         int version = increment_var_version(ctx, param->name);
-        SSAValue* param_value = create_ssa_var(param->name, version);
+        (void)version; // Currently unused: placeholder for future parameter initialization
         // In a full implementation, we'd add parameter initialization instructions
     }
     
@@ -430,6 +430,8 @@ BasicBlock* process_return_statement(CFGBuilderContext* ctx, ReturnNode* ret_stm
 }
 
 BasicBlock* process_break_statement(CFGBuilderContext* ctx, BreakNode* break_stmt, BasicBlock* current) {
+    (void)break_stmt; // Currently unused; kept for potential future metadata
+
     // Check if we're in a switch context first (inner-most context)
     if (ctx->switch_context) {
         // Jump to switch exit
@@ -440,18 +442,20 @@ BasicBlock* process_break_statement(CFGBuilderContext* ctx, BreakNode* break_stm
         add_instruction(current->instructions, create_ssa_jump(ctx->loop_context->exit));
         add_edge(current, ctx->loop_context->exit);
     }
-    
+
     return NULL; // No successor block after break
 }
 
 BasicBlock* process_continue_statement(CFGBuilderContext* ctx, ContinueNode* continue_stmt, BasicBlock* current) {
+    (void)continue_stmt; // Currently unused; kept for potential future metadata
+
     // Continue statements only make sense in loop contexts
     if (ctx->loop_context) {
         // Jump to loop header (which contains the loop condition)
         add_instruction(current->instructions, create_ssa_jump(ctx->loop_context->header));
         add_edge(current, ctx->loop_context->header);
     }
-    
+
     return NULL; // No successor block after continue
 }
 
@@ -500,7 +504,6 @@ BasicBlock* process_switch_statement(CFGBuilderContext* ctx, SwitchNode* switch_
     // First pass: Create all case blocks and build case mappings
     BasicBlock** case_blocks = (BasicBlock**)malloc(switch_stmt->cases->count * sizeof(BasicBlock*));
     int case_index = 0;
-    int default_index = -1;
     
     for (int i = 0; i < switch_stmt->cases->count; i++) {
         CaseNode* case_node = (CaseNode*)switch_stmt->cases->items[i];
@@ -508,7 +511,6 @@ BasicBlock* process_switch_statement(CFGBuilderContext* ctx, SwitchNode* switch_
         if (case_node->value == NULL) {
             // Default case
             case_blocks[i] = default_block;
-            default_index = i;
         } else {
             // Regular case
             char block_name[64];
@@ -523,8 +525,6 @@ BasicBlock* process_switch_statement(CFGBuilderContext* ctx, SwitchNode* switch_
     }
     
     // Second pass: Process case bodies with fall-through support
-    BasicBlock* last_block = NULL;
-    
     for (int i = 0; i < switch_stmt->cases->count; i++) {
         CaseNode* case_node = (CaseNode*)switch_stmt->cases->items[i];
         BasicBlock* case_block = case_blocks[i];
@@ -558,7 +558,6 @@ BasicBlock* process_switch_statement(CFGBuilderContext* ctx, SwitchNode* switch_
             }
         }
         
-        last_block = current_block;
     }
     
     // Clean up
@@ -655,10 +654,13 @@ SSAValue* process_assignment(CFGBuilderContext* ctx, AssignmentNode* assign, Bas
 }
 
 SSAValue* process_identifier(CFGBuilderContext* ctx, IdentifierNode* ident, BasicBlock* current) {
+    (void)current; // Current block not needed for simple variable lookup
     return get_current_var_value(ctx, ident->name);
 }
 
 SSAValue* process_number_literal(CFGBuilderContext* ctx, NumberLiteralNode* num, BasicBlock* current) {
+    (void)ctx;      // Not needed for pure constant
+    (void)current;  // No control-flow effect
     return create_ssa_const(atoi(num->value));
 }
 
@@ -771,7 +773,8 @@ BasicBlock* split_block(CFGBuilderContext* ctx, BasicBlock* block, const char* l
     
     // Add edge from block to new_block
     add_edge(block, new_block);
-    
+
+    return new_block;
 }
 
 // --- Goto/Label Support Functions ---

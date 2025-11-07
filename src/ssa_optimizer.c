@@ -289,8 +289,6 @@ bool is_value_used(SSAValue* value, OptimizationContext* ctx) {
 
 bool constant_propagation_pass(OptimizationContext* ctx) {
     if (!ctx) return false;
-    
-    bool changed = false;
     int initial_count = ctx->stats.constants_propagated;
     
     for (int i = 0; i < ctx->cfg->block_count; i++) {
@@ -303,7 +301,6 @@ bool constant_propagation_pass(OptimizationContext* ctx) {
                 if (instr->type == SSA_ASSIGN && instr->dest) {
                     // Simple constant assignment: x = 5
                     mark_value_as_constant(ctx, instr->dest, instr->operands[0]->data.const_value);
-                    changed = true;
                 }
                 else if (instr->type == SSA_BINARY_OP && instr->dest && instr->operand_count >= 2) {
                     // Constant folding: x = 5 + 3
@@ -320,7 +317,6 @@ bool constant_propagation_pass(OptimizationContext* ctx) {
                     }
                     
                     mark_value_as_constant(ctx, instr->dest, result);
-                    changed = true;
                 }
             }
         }
@@ -331,8 +327,6 @@ bool constant_propagation_pass(OptimizationContext* ctx) {
 
 bool copy_propagation_pass(OptimizationContext* ctx) {
     if (!ctx) return false;
-    
-    bool changed = false;
     int initial_count = ctx->stats.copies_propagated;
     
     for (int i = 0; i < ctx->cfg->block_count; i++) {
@@ -344,7 +338,6 @@ bool copy_propagation_pass(OptimizationContext* ctx) {
             if (is_copy_instruction(instr) && instr->dest) {
                 // Simple copy: x = y
                 mark_value_as_copy(ctx, instr->dest, instr->operands[0]);
-                changed = true;
             }
         }
     }
@@ -354,8 +347,6 @@ bool copy_propagation_pass(OptimizationContext* ctx) {
 
 bool dead_code_elimination_pass(OptimizationContext* ctx) {
     if (!ctx) return false;
-    
-    bool changed = false;
     int initial_count = ctx->stats.dead_instructions_removed;
     
     for (int i = 0; i < ctx->cfg->block_count; i++) {
@@ -370,7 +361,6 @@ bool dead_code_elimination_pass(OptimizationContext* ctx) {
                     mark_value_as_dead(ctx, instr->dest);
                 }
                 ctx->stats.dead_instructions_removed++;
-                changed = true;
             }
         }
     }

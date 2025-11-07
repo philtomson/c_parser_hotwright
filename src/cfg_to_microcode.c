@@ -15,7 +15,8 @@ int switch_offset_bits = DEFAULT_SWITCH_OFFSET_BITS; // Default value
  
 static void init_hotstate_microcode(HotstateMicrocode* mc, CFG* cfg, HardwareContext* hw_ctx);
 static char* generate_instruction_label(SSAInstruction* instr, BasicBlock* block);
-static bool is_boolean_expression(Node* expr);
+/* static bool is_boolean_expression(Node* expr); */
+/* Unused prototype: original idea for expression classification, not implemented. */
 static int count_expected_instructions(CFG* cfg);
 
 // --- Main Translation Function ---
@@ -220,6 +221,7 @@ MCode encode_state_assignment(SSAInstruction* instr, HardwareContext* hw_ctx) {
 }
 
 MCode encode_conditional_branch(SSAInstruction* instr, HardwareContext* hw_ctx, int true_addr, int false_addr) {
+    (void)false_addr; // Currently unused: reserved for potential dual-target encodings
     MCode mcode = {0}; // Initialize all fields to 0
     
     // Get input variable for condition
@@ -341,6 +343,7 @@ int get_block_address(HotstateMicrocode* mc, BasicBlock* block) {
 // --- Instruction Management ---
 
 void add_hotstate_instruction(HotstateMicrocode* mc, MCode mcode_val, const char* label, BasicBlock* source_block) {
+    (void)source_block; // Placeholder for potential debug/trace association
     if (mc->instruction_count >= mc->instruction_capacity) {
         resize_instruction_array(mc);
     }
@@ -381,6 +384,7 @@ void resize_instruction_array(HotstateMicrocode* mc) {
 // --- Helper Functions ---
 
 static char* generate_instruction_label(SSAInstruction* instr, BasicBlock* block) {
+    (void)block; // Not currently needed for label synthesis
     char* label = malloc(128);
     
     switch (instr->type) {
