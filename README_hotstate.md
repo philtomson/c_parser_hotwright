@@ -1,15 +1,14 @@
-Based on my exploration of the hotstate project in `/home/phil/devel/FPGA/hotstate`, I can tell you what hotstate does:
-
 ## Hotstate: Runtime Loadable Microcoded Algorithmic State Machine (RLMASM)
+Since c_parser intends to duplicate and extend hotstate this is deep dive into the hotsate code from hotwright.com
 
 ### What Hotstate Does
 
-**Hotstate** is a specialized compiler that converts C code into **hardware state machines** for FPGA implementation. It's fundamentally different from your current c_parser project in its purpose and output.
+**Hotstate** is a specialized compiler that converts C code into **hardware state machines** for FPGA implementation.
 
 ### Key Characteristics
 
 #### 1. **Hardware-Oriented C Compiler**
-- Takes C code as input (like your c_parser)
+- Takes C code as input (like c_parser)
 - But instead of generating CFGs for analysis, it generates **microcode for state machines**
 - Specifically designed for FPGA hardware synthesis
 
@@ -54,9 +53,9 @@ s e k r l l d l r p r h p b n
 - **One-Hot Encoding**: Each state corresponds to an output (LED0, LED1, LED2)
 - **Microcode Output**: Generates hardware description suitable for FPGA synthesis
 
-### Comparison with Your C Parser
+### Comparison with c_parser
 
-| Feature | Your c_parser_rd_gemini | Hotstate |
+| Feature | Your c_parser | hotstate |
 |---------|------------------------|----------|
 | **Purpose** | C code analysis & CFG generation | C-to-hardware state machine compiler |
 | **Input** | C source code | C source code (hardware-oriented) |
@@ -65,7 +64,7 @@ s e k r l l d l r p r h p b n
 | **Parser Type** | Hand-written recursive descent | Yacc/Bison grammar-based |
 | **Focus** | Language features & program flow | Hardware state transitions |
 
-### Technical Architecture
+### Technical Architecture of hotstate
 
 #### Parser Implementation
 - Uses **Yacc/Bison** grammar (`gram.y`) + **Flex** lexer (`scan.l`)
@@ -110,3 +109,6 @@ Both projects demonstrate different approaches to C parsing:
 - **Hotstate approach**: Grammar-based, hardware-oriented, production-focused for FPGA development
 
 The hotstate project shows how C parsing can be applied to hardware design, making it a fascinating parallel to your software-focused parser. It's particularly interesting that both projects generate DOT files for visualization, but hotstate's ultimate goal is hardware synthesis rather than program analysis.
+
+
+See docs/hotstate_code_overview.md for a deep dive into the hotstate codebase.
