@@ -59,8 +59,8 @@ static void process_assignment(CompactMicrocode* mc, AssignmentNode* assign, int
 static void process_expression_statement(CompactMicrocode* mc, ExpressionStatementNode* expr_stmt, int* addr);
 static void process_switch_statement(CompactMicrocode* mc, SwitchNode* switch_node, int* addr);
 static void process_expression(CompactMicrocode* mc, Node* expr, int* addr);
-static void generate_expected_sequence(CompactMicrocode* mc, int* addr);
-static void process_for_loop(CompactMicrocode* mc, ForNode* for_node, int* addr);
+/* static void generate_expected_sequence(CompactMicrocode* mc, int* addr); */  /* Not implemented; comment out to silence -Wunused-function */
+/* static void process_for_loop(CompactMicrocode* mc, ForNode* for_node, int* addr); */ /* Declared but not defined; for-loop handled elsewhere */
 // Hotstate compatibility functions
 static int get_state_number_for_variable(const char* var_name, HardwareContext* hw_ctx);
 static void calculate_hotstate_fields(AssignmentNode* assign, HardwareContext* hw_ctx, int* state_out, int* mask_out);
@@ -217,7 +217,7 @@ static LoopSwitchContext peek_context(CompactMicrocode* mc, ContextSearchType se
         }
     }
     fprintf(stderr, "Error: 'break' or 'continue' statement outside of a valid context.\n");
-    LoopSwitchContext error_context = {-1, -1}; // Return invalid targets
+    LoopSwitchContext error_context = {-1, -1, -1}; // Return invalid targets for all fields (including break_target)
     return error_context;
 }
 
@@ -974,6 +974,7 @@ static void process_statement(CompactMicrocode* mc, Node* stmt, int* addr) {
             int while_loop_start_addr = *addr; 
             // Determine break_target (address after the entire while loop)
             int estimated_break_target;
+            (void)estimated_break_target; // Placeholder for future use; avoid unused-variable warning
             // Check if it's a while(1) loop
             bool is_while_one = (while_node->condition->type == NODE_NUMBER_LITERAL &&
                                  atoi(((NumberLiteralNode*)while_node->condition)->value) == 1);
@@ -1194,6 +1195,7 @@ static void process_statement(CompactMicrocode* mc, Node* stmt, int* addr) {
                     // Store the context stack index so we can find the correct break target later
                     // We need to find the switch context on the stack
                     int switch_context_index = -1;
+                    (void)switch_context_index; // Currently unused; reserved for potential debug/analysis
                     int switch_start_addr = -1;
                     for (int i = mc->stack_ptr - 1; i >= 0; i--) {
                         if (mc->loop_switch_stack[i].loop_type == NODE_SWITCH) {
@@ -1410,7 +1412,7 @@ static int get_input_var_number(const char* var_name) {
 }
 
 // Process expression and generate microcode
-static void process_expression(CompactMicrocode* mc, Node* expr, int* addr) {
+/* static void process_expression(CompactMicrocode* mc, Node* expr, int* addr); */ /* Alternative helper; currently unused */
     if (!expr) return;
     
     switch (expr->type) {
@@ -1419,6 +1421,7 @@ static void process_expression(CompactMicrocode* mc, Node* expr, int* addr) {
             
             // Check if this is an input variable and get its number
             int input_num = get_input_var_number(ident->name);
+            (void)input_num; // Placeholder for future direct-input handling; avoid unused-variable warning
             
             // Generate load instruction for identifier
             // For load instructions, varSel should be 0 (non-conditional)
@@ -1577,6 +1580,7 @@ static char* create_condition_label(Node* condition) {
 }
 
 static int calculate_jump_address(CompactMicrocode* mc, IfNode* if_node, int current_addr) {
+    (void)mc; // mc not used yet in this helper
     // For branch instructions, calculate where to jump if condition is FALSE
     // This should jump to the next statement after the if-then-else block
     
@@ -1597,6 +1601,7 @@ static int calculate_jump_address(CompactMicrocode* mc, IfNode* if_node, int cur
 }
 
 static int calculate_else_jump_address(CompactMicrocode* mc, IfNode* if_node, int current_addr) {
+    (void)mc; // mc not used yet in this helper
     // For else instructions, calculate where to jump (past the entire if-else block)
     int else_size = estimate_statement_size(if_node->else_branch);
     int jump_target = current_addr + 1 + else_size; // +1 for else instruction, +else_size
@@ -2179,6 +2184,7 @@ static void populate_switch_memory(CompactMicrocode* mc, int switch_id, SwitchNo
 
 // Add switch instruction with switch metadata
 static void add_switch_instruction(CompactMicrocode* mc, MCode* mcode, const char* label, int switch_id) {
+    (void)switch_id; // Unused for now; interface kept for future per-switch handling
     if (mc->instruction_count >= mc->instruction_capacity) {
         mc->instruction_capacity *= 2;
         mc->instructions = (Code*)realloc(mc->instructions, sizeof(mc->instructions[0]) * mc->instruction_capacity);
@@ -2191,6 +2197,7 @@ static void add_switch_instruction(CompactMicrocode* mc, MCode* mcode, const cha
 
 // Add case target instruction with case metadata
 static void add_case_instruction(CompactMicrocode* mc, MCode* mcode, const char* label, int switch_id) {
+    (void)switch_id; // Unused for now; interface kept for future per-switch handling
     // Case instructions are not jumps themselves.
     add_compact_instruction(mc, mcode, label, JUMP_TYPE_DIRECT, 0);
 }

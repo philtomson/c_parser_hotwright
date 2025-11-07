@@ -19,7 +19,7 @@ static Node* parse_for_statement(Parser* p);
 static Node* parse_switch_statement(Parser* p);
 static Node* parse_expression_statement(Parser* p);
 static Node* parse_goto_statement(Parser* p);
-static Node* parse_continue_statement(Parser* p);
+/* static Node* parse_continue_statement(Parser* p); */ /* Unused forward decl removed to silence -Wunused-function */
 
 
 // Expression Parsers (for operator precedence)
