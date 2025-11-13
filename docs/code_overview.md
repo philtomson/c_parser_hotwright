@@ -198,22 +198,6 @@ C source → Preprocessor → Lexer → Parser → AST → CFG (+ SSA/analysis) 
   - Functionality:
     - Wires all core components into a single command-line tool.
 
-## DOT and Auxiliary Files
-
-These are documentation/visualization aids and not core logic:
-
-- [`src/arrays_booleans.dot`](src/arrays_booleans.dot)
-- [`src/for_loop.dot`](src/for_loop.dot)
-- [`src/if_statement.dot`](src/if_statement.dot)
-- [`src/simple_function.dot`](src/simple_function.dot)
-- [`src/while_loop.dot`](src/while_loop.dot)
-
-They typically:
-- Visualize CFGs or control structures for example programs.
-- Assist in debugging and communicating design/IR shapes.
-
-Build artifacts in `src/` (e.g., `*.o`, `c_parser`) are generated and not part of the source design.
-
 ## End-to-End Dataflow (Concise)
 
 1. `main.c`:

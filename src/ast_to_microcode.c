@@ -1404,7 +1404,7 @@ static void process_switch_statement(CompactMicrocode* mc, SwitchNode* switch_no
 static int get_input_var_number(const char* var_name) {
     // Map common input variable names to input numbers
     // This is a simplified mapping - in a real implementation, this would
-    // come from symbol table or hardware context
+    // come from a symbol table or hardware context
     if (strcmp(var_name, "case_in") == 0) return 0;
     if (strcmp(var_name, "new_case") == 0) return 1;
     if (strncmp(var_name, "input", 5) == 0) return 2; // input0, input1, etc.
@@ -1412,29 +1412,29 @@ static int get_input_var_number(const char* var_name) {
 }
 
 // Process expression and generate microcode
-/* static void process_expression(CompactMicrocode* mc, Node* expr, int* addr); */ /* Alternative helper; currently unused */
+static void process_expression(CompactMicrocode* mc, Node* expr, int* addr) {
     if (!expr) return;
-    
+
     switch (expr->type) {
         case NODE_IDENTIFIER: {
             IdentifierNode* ident = (IdentifierNode*)expr;
-            
+
             // Check if this is an input variable and get its number
             int input_num = get_input_var_number(ident->name);
             (void)input_num; // Placeholder for future direct-input handling; avoid unused-variable warning
-            
+
             // Generate load instruction for identifier
             // For load instructions, varSel should be 0 (non-conditional)
             MCode load_mcode;
             populate_mcode_instruction(mc, &load_mcode, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-            
+
             char label[64];
             snprintf(label, sizeof(label), "load %s", ident->name);
             add_compact_instruction(mc, &load_mcode, label, JUMP_TYPE_DIRECT, 0);
             (*addr)++;
             break;
         }
-        
+
         case NODE_NUMBER_LITERAL: {
             NumberLiteralNode* num = (NumberLiteralNode*)expr;
             // Generate immediate load instruction
@@ -1446,7 +1446,7 @@ static int get_input_var_number(const char* var_name) {
             (*addr)++;
             break;
         }
-        
+
         case NODE_BINARY_OP: {
             BinaryOpNode* binop = (BinaryOpNode*)expr;
             // Process left operand
@@ -1460,7 +1460,7 @@ static int get_input_var_number(const char* var_name) {
             (*addr)++;
             break;
         }
-        
+
         default:
             // Skip other expression types for now
             break;
